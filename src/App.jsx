@@ -539,6 +539,8 @@ export default function KitchenDesigner() {
     const spherical = { radius: 6, theta: Math.PI / 4, phi: Math.PI / 3 };
     const target = new THREE.Vector3(2, 0.8, 1);
     const drag = { active: false, x: 0, y: 0 };
+    const pointers = new Map();
+    let pinchDist = null;
 
     function updateCamera() {
       camera.position.set(
@@ -549,8 +551,28 @@ export default function KitchenDesigner() {
       camera.lookAt(target);
       renderer.render(scene, camera);
     }
-    function onDown(e) { drag.active = true; drag.x = e.clientX; drag.y = e.clientY; }
+    function onDown(e) {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        drag.active = true; drag.x = e.clientX; drag.y = e.clientY;
+      } else if (pointers.size === 2) {
+        drag.active = false;
+        const [p1, p2] = [...pointers.values()];
+        pinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      }
+    }
     function onMove(e) {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const [p1, p2] = [...pointers.values()];
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (pinchDist != null && dist > 0) {
+          spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (pinchDist / dist)));
+        }
+        pinchDist = dist;
+        updateCamera();
+        return;
+      }
       if (!drag.active) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
@@ -558,7 +580,16 @@ export default function KitchenDesigner() {
       spherical.phi = Math.min(Math.PI - 0.1, Math.max(0.15, spherical.phi - dy * 0.006));
       updateCamera();
     }
-    function onUp() { drag.active = false; }
+    function onUp(e) {
+      pointers.delete(e.pointerId);
+      pinchDist = null;
+      if (pointers.size === 1) {
+        const [remaining] = [...pointers.values()];
+        drag.active = true; drag.x = remaining.x; drag.y = remaining.y;
+      } else {
+        drag.active = false;
+      }
+    }
     function onWheel(e) { e.preventDefault(); spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (1 + e.deltaY * 0.001))); updateCamera(); }
     function onResize() {
       camera.aspect = container.clientWidth / container.clientHeight;
@@ -566,9 +597,11 @@ export default function KitchenDesigner() {
       renderer.setSize(container.clientWidth, container.clientHeight);
       updateCamera();
     }
+    renderer.domElement.style.touchAction = "none";
     renderer.domElement.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("resize", onResize);
 
@@ -579,6 +612,7 @@ export default function KitchenDesigner() {
       renderer.domElement.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
       container.removeChild(renderer.domElement);
@@ -845,12 +879,29 @@ export default function KitchenDesigner() {
         .main { flex:1; display:flex; flex-direction:column; min-width:0; background:#ffffff; }
         .editor2d-wrap { flex:1; min-height:280px; border-bottom:1px solid #d7dde3; padding:6px; }
         .viewer3d-wrap { height:320px; }
-        .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; }
+        .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; touch-action:none; }
         .dim-text { font-family:'IBM Plex Mono',monospace; fill:#1f6f93; }
         .footer-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; padding:8px 12px; border-bottom:1px solid #d7dde3; }
         .empty { color:#8b96a3; font-size:12px; padding:20px 0; text-align:center; }
         .radii-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
         .radii-grid label { grid-column:1 / -1; }
+
+        @media (max-width: 860px) {
+          .app { min-height: 100vh; height: auto; }
+          .body { flex-direction: column; }
+          .sidebar { width: 100%; max-height: 42vh; border-right: none; border-bottom: 1px solid #d7dde3; }
+          .header { padding: 10px 12px; }
+          .header h1 { font-size: 13px; }
+          .header .sub { font-size: 10px; }
+          .btn { font-size: 11px; padding: 6px 8px; }
+          .editor2d-wrap { min-height: 260px; }
+          .viewer3d-wrap { height: 260px; }
+          .field input[type=number], .vertex-row input, .select { font-size: 16px; }
+        }
+        @media (max-width: 480px) {
+          .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .tab { flex: 0 0 auto; padding: 10px 16px; }
+        }
       `}</style>
 
       <div className="header">
@@ -1067,7 +1118,7 @@ export default function KitchenDesigner() {
         <div className="main">
           <div className="footer-hint">Points ambre = sommets · meubles = glisser le long du mur · plans de travail = glisser librement</div>
           <div className="editor2d-wrap">
-            <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+            <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ touchAction: "none" }}>
               <defs>
                 <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                   <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e3e7ec" strokeWidth="0.5" />
@@ -1123,9 +1174,10 @@ export default function KitchenDesigner() {
               ))}
 
               {vertices.map((v, i) => (
-                <circle key={i} cx={v.x} cy={v.y} r={7} fill="#ffffff" stroke="#e2711d" strokeWidth={2}
-                  vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }}
-                  onPointerDown={(e) => onVertexDown(i, e)} />
+                <g key={i}>
+                  <circle cx={v.x} cy={v.y} r={16} fill="transparent" style={{ cursor: "grab" }} onPointerDown={(e) => onVertexDown(i, e)} />
+                  <circle cx={v.x} cy={v.y} r={7} fill="#ffffff" stroke="#e2711d" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+                </g>
               ))}
             </svg>
           </div>
