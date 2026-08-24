@@ -521,7 +521,7 @@ export default function KitchenDesigner() {
     const container = containerRef.current;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xeef1f4);
-    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.05, 100);
+    const camera = new THREE.PerspectiveCamera(45, (container.clientWidth || 4) / (container.clientHeight || 3), 0.05, 100);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -591,21 +591,30 @@ export default function KitchenDesigner() {
       }
     }
     function onWheel(e) { e.preventDefault(); spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (1 + e.deltaY * 0.001))); updateCamera(); }
-    function onResize() {
-      camera.aspect = container.clientWidth / container.clientHeight;
+    function applySize(w, h) {
+      if (!w || !h) return;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setSize(w, h);
       updateCamera();
     }
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const box = entry.contentRect;
+      applySize(box.width, box.height);
+    });
+    resizeObserver.observe(container);
+
     renderer.domElement.style.touchAction = "none";
     renderer.domElement.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("resize", onResize);
 
     three.current = { scene, camera, renderer, group, roomGroup, target, spherical, updateCamera };
+    applySize(container.clientWidth, container.clientHeight);
     updateCamera();
 
     return () => {
@@ -613,7 +622,7 @@ export default function KitchenDesigner() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      window.removeEventListener("resize", onResize);
+      resizeObserver.disconnect();
       renderer.dispose();
       container.removeChild(renderer.domElement);
     };
