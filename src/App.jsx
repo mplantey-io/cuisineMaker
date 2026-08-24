@@ -848,7 +848,7 @@ export default function KitchenDesigner() {
         .tabs { display:flex; border-bottom:1px solid #d7dde3; }
         .tab { flex:1; padding:10px 0; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; text-transform:uppercase; background:none; border:none; color:#6b7789; cursor:pointer; border-bottom:2px solid transparent; }
         .tab.active { color:#1f6f93; border-bottom-color:#1f6f93; }
-        .panel { padding:16px; overflow-y:auto; flex:1; }
+        .panel { padding:16px; overflow-y:auto; flex:1; min-height:0; }
         .field { margin-bottom:14px; }
         .field label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7789; margin-bottom:5px; }
         .field input[type=number], .select { width:100%; background:#ffffff; border:1px solid #c7d0d9; color:#1d2733; padding:7px 8px; border-radius:3px; font-family:'IBM Plex Mono',monospace; font-size:12px; }
@@ -889,7 +889,7 @@ export default function KitchenDesigner() {
         @media (max-width: 860px) {
           .app { min-height: 100vh; height: auto; }
           .body { flex-direction: column; }
-          .sidebar { width: 100%; max-height: 42vh; border-right: none; border-bottom: 1px solid #d7dde3; }
+          .sidebar { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-right: none; border-bottom: 1px solid #d7dde3; }
           .header { padding: 10px 12px; }
           .header h1 { font-size: 13px; }
           .header .sub { font-size: 10px; }
