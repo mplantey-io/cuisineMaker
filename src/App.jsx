@@ -419,6 +419,21 @@ function makeBlankProject(name) {
     vertices: DEFAULT_VERTICES, roomHeight: 240, placements: [], freeItems: [], wallFlips: {},
   };
 }
+// Garantit une forme de projet toujours valide, y compris pour d'anciens
+// projets enregistrés avant qu'un champ existe (ex : "worktops" -> "freeItems").
+function normalizeProject(p) {
+  if (!p || typeof p !== "object") return makeBlankProject("Cuisine");
+  return {
+    id: p.id || uid(),
+    name: p.name || "Cuisine",
+    savedAt: p.savedAt || new Date().toISOString(),
+    vertices: Array.isArray(p.vertices) && p.vertices.length >= 3 ? p.vertices : DEFAULT_VERTICES,
+    roomHeight: typeof p.roomHeight === "number" ? p.roomHeight : 240,
+    placements: Array.isArray(p.placements) ? p.placements : [],
+    freeItems: Array.isArray(p.freeItems) ? p.freeItems : (Array.isArray(p.worktops) ? p.worktops : []),
+    wallFlips: p.wallFlips && typeof p.wallFlips === "object" ? p.wallFlips : {},
+  };
+}
 function loadStore() {
   try {
     const raw = localStorage.getItem(LS_PROJECTS);
@@ -442,7 +457,9 @@ function persistActive(id) {
 export default function KitchenDesigner() {
   const [initData] = useState(() => {
     const { projects, activeId } = loadStore();
-    let list = projects && typeof projects === "object" ? projects : {};
+    let rawList = projects && typeof projects === "object" ? projects : {};
+    // normalise (et migre) chaque projet stocké, une fois pour toutes
+    let list = Object.fromEntries(Object.entries(rawList).map(([id, p]) => [id, { ...normalizeProject(p), id }]));
     let active = activeId && list[activeId] ? list[activeId] : null;
     if (!active) {
       const ids = Object.keys(list);
@@ -451,9 +468,9 @@ export default function KitchenDesigner() {
       } else {
         active = makeBlankProject("Cuisine 1");
         list = { ...list, [active.id]: active };
-        persistProjects(list);
       }
     }
+    persistProjects(list);
     persistActive(active.id);
     return { projects: list, project: active };
   });
@@ -902,7 +919,8 @@ export default function KitchenDesigner() {
   }, [vertices, roomHeight, placements, freeItems, wallFlips, activeProjectId]);
 
   // --- gestion multi-projets ---
-  function loadProjectState(p) {
+  function loadProjectState(raw) {
+    const p = normalizeProject(raw);
     setVertices(p.vertices); setRoomHeight(p.roomHeight); setPlacements(p.placements);
     setFreeItems(p.freeItems); setWallFlips(p.wallFlips);
     setActiveWallIndex(0); setSelectedUid(null); setSelectedFreeUid(null);
