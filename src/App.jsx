@@ -396,14 +396,63 @@ function exportProjectJSON(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Persistance locale (localStorage) — plusieurs projets, chargement auto
+// ---------------------------------------------------------------------------
+const LS_PROJECTS = "atelier-cuisine-projects-v1";
+const LS_ACTIVE = "atelier-cuisine-active-v1";
+
+function makeBlankProject(name) {
+  return {
+    id: uid(), name, savedAt: new Date().toISOString(),
+    vertices: DEFAULT_VERTICES, roomHeight: 240, placements: [], worktops: [], wallFlips: {},
+  };
+}
+function loadStore() {
+  try {
+    const raw = localStorage.getItem(LS_PROJECTS);
+    const projects = raw ? JSON.parse(raw) : {};
+    const activeId = localStorage.getItem(LS_ACTIVE);
+    return { projects, activeId };
+  } catch {
+    return { projects: {}, activeId: null };
+  }
+}
+function persistProjects(projects) {
+  try { localStorage.setItem(LS_PROJECTS, JSON.stringify(projects)); } catch { /* stockage indisponible, tant pis */ }
+}
+function persistActive(id) {
+  try { localStorage.setItem(LS_ACTIVE, id); } catch { /* stockage indisponible, tant pis */ }
+}
+
+// ---------------------------------------------------------------------------
 // Composant principal
 // ---------------------------------------------------------------------------
 export default function KitchenDesigner() {
-  const [vertices, setVertices] = useState(DEFAULT_VERTICES);
-  const [roomHeight, setRoomHeight] = useState(240);
-  const [placements, setPlacements] = useState([]);
-  const [worktops, setWorktops] = useState([]);
-  const [wallFlips, setWallFlips] = useState({});
+  const [initData] = useState(() => {
+    const { projects, activeId } = loadStore();
+    let list = projects && typeof projects === "object" ? projects : {};
+    let active = activeId && list[activeId] ? list[activeId] : null;
+    if (!active) {
+      const ids = Object.keys(list);
+      if (ids.length > 0) {
+        active = list[ids[0]];
+      } else {
+        active = makeBlankProject("Cuisine 1");
+        list = { ...list, [active.id]: active };
+        persistProjects(list);
+      }
+    }
+    persistActive(active.id);
+    return { projects: list, project: active };
+  });
+
+  const [projects, setProjects] = useState(initData.projects);
+  const [activeProjectId, setActiveProjectId] = useState(initData.project.id);
+  const [vertices, setVertices] = useState(initData.project.vertices);
+  const [roomHeight, setRoomHeight] = useState(initData.project.roomHeight);
+  const [placements, setPlacements] = useState(initData.project.placements);
+  const [worktops, setWorktops] = useState(initData.project.worktops);
+  const [wallFlips, setWallFlips] = useState(initData.project.wallFlips);
   const [selectedUid, setSelectedUid] = useState(null);
   const [selectedWorktopUid, setSelectedWorktopUid] = useState(null);
   const [activeWallIndex, setActiveWallIndex] = useState(0);
@@ -418,6 +467,7 @@ export default function KitchenDesigner() {
   const moduleDragRef = useRef(null);
   const worktopDragRef = useRef(null);
   const fileInputRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
 
   const walls = useMemo(() => {
     const orient = polygonOrientation(vertices);
@@ -811,9 +861,72 @@ export default function KitchenDesigner() {
     setWallFlips({}); setActiveWallIndex(0); setSelectedUid(null); setSelectedWorktopUid(null);
   }
 
+  // --- sauvegarde automatique locale (anti-rebond) du projet actif ---
+  useEffect(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      setProjects((prev) => {
+        const existing = prev[activeProjectId];
+        if (!existing) return prev;
+        const updated = { ...prev, [activeProjectId]: { ...existing, vertices, roomHeight, placements, worktops, wallFlips, savedAt: new Date().toISOString() } };
+        persistProjects(updated);
+        return updated;
+      });
+    }, 500);
+    return () => clearTimeout(saveTimeoutRef.current);
+  }, [vertices, roomHeight, placements, worktops, wallFlips, activeProjectId]);
+
+  // --- gestion multi-projets ---
+  function loadProjectState(p) {
+    setVertices(p.vertices); setRoomHeight(p.roomHeight); setPlacements(p.placements);
+    setWorktops(p.worktops); setWallFlips(p.wallFlips);
+    setActiveWallIndex(0); setSelectedUid(null); setSelectedWorktopUid(null);
+  }
+  function switchProject(id) {
+    const p = projects[id];
+    if (!p || id === activeProjectId) return;
+    setActiveProjectId(id);
+    loadProjectState(p);
+    persistActive(id);
+  }
+  function createNewProject() {
+    const suggested = `Cuisine ${Object.keys(projects).length + 1}`;
+    const name = (typeof window !== "undefined" ? window.prompt("Nom du nouveau projet", suggested) : suggested) || suggested;
+    const p = makeBlankProject(name);
+    const updated = { ...projects, [p.id]: p };
+    setProjects(updated);
+    persistProjects(updated);
+    setActiveProjectId(p.id);
+    loadProjectState(p);
+    persistActive(p.id);
+  }
+  function renameActiveProject() {
+    const current = projects[activeProjectId];
+    const name = window.prompt("Renommer le projet", current?.name || "");
+    if (!name) return;
+    setProjects((prev) => {
+      const updated = { ...prev, [activeProjectId]: { ...prev[activeProjectId], name } };
+      persistProjects(updated);
+      return updated;
+    });
+  }
+  function deleteActiveProject() {
+    const ids = Object.keys(projects);
+    if (ids.length <= 1) return;
+    if (!window.confirm(`Supprimer "${projects[activeProjectId]?.name}" ? Cette action est irréversible.`)) return;
+    const updated = { ...projects };
+    delete updated[activeProjectId];
+    setProjects(updated);
+    persistProjects(updated);
+    const nextId = Object.keys(updated)[0];
+    setActiveProjectId(nextId);
+    loadProjectState(updated[nextId]);
+    persistActive(nextId);
+  }
+
   // --- export / import du projet complet ---
   function handleExportProject() {
-    exportProjectJSON({ vertices, roomHeight, placements, worktops, wallFlips });
+    exportProjectJSON({ name: projects[activeProjectId]?.name, vertices, roomHeight, placements, worktops, wallFlips });
   }
   function triggerImport() { setImportError(""); fileInputRef.current?.click(); }
   function handleImportFile(e) {
@@ -824,12 +937,22 @@ export default function KitchenDesigner() {
       try {
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data.vertices) || data.vertices.length < 3) throw new Error("bad-vertices");
-        setVertices(data.vertices);
-        setRoomHeight(typeof data.roomHeight === "number" ? data.roomHeight : 240);
-        setPlacements(Array.isArray(data.placements) ? data.placements : []);
-        setWorktops(Array.isArray(data.worktops) ? data.worktops : []);
-        setWallFlips(data.wallFlips && typeof data.wallFlips === "object" ? data.wallFlips : {});
-        setActiveWallIndex(0); setSelectedUid(null); setSelectedWorktopUid(null);
+        const suggested = data.name || file.name.replace(/\.json$/i, "") || "Projet importé";
+        const name = window.prompt("Nom du projet importé", suggested) || suggested;
+        const p = {
+          id: uid(), name, savedAt: new Date().toISOString(),
+          vertices: data.vertices,
+          roomHeight: typeof data.roomHeight === "number" ? data.roomHeight : 240,
+          placements: Array.isArray(data.placements) ? data.placements : [],
+          worktops: Array.isArray(data.worktops) ? data.worktops : [],
+          wallFlips: data.wallFlips && typeof data.wallFlips === "object" ? data.wallFlips : {},
+        };
+        const updated = { ...projects, [p.id]: p };
+        setProjects(updated);
+        persistProjects(updated);
+        setActiveProjectId(p.id);
+        loadProjectState(p);
+        persistActive(p.id);
         setImportError("");
       } catch (err) {
         setImportError("Fichier illisible : ce n'est pas un projet Atelier Cuisine valide.");
@@ -848,6 +971,10 @@ export default function KitchenDesigner() {
         .header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #d7dde3; background:#ffffff; flex-wrap:wrap; gap:8px; }
         .header h1 { font-size:15px; letter-spacing:.04em; text-transform:uppercase; font-weight:600; margin:0; color:#1d2733; }
         .header .sub { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#1f6f93; margin-top:2px; }
+        .project-bar { display:flex; align-items:center; gap:8px; padding:8px 18px; background:#f7f9fa; border-bottom:1px solid #d7dde3; flex-wrap:wrap; }
+        .project-bar label { font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7789; }
+        .project-bar .select { width:auto; min-width:160px; }
+        .autosave-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8b96a3; margin-left:auto; }
         .btn { font-family:'IBM Plex Mono',monospace; font-size:12px; background:#f3f5f7; color:#1d2733; border:1px solid #c7d0d9; padding:7px 10px; border-radius:3px; cursor:pointer; }
         .btn:hover { border-color:#1f6f93; color:#1f6f93; }
         .btn:disabled { opacity:.4; cursor:default; }
@@ -898,6 +1025,8 @@ export default function KitchenDesigner() {
         .radii-grid label { grid-column:1 / -1; }
 
         @media (max-width: 860px) {
+          .project-bar { padding: 8px 12px; }
+          .autosave-hint { display: none; }
           .app { min-height: 100vh; height: auto; }
           .body { flex-direction: column; }
           .sidebar { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-right: none; border-bottom: 1px solid #d7dde3; }
@@ -930,6 +1059,18 @@ export default function KitchenDesigner() {
           <button className="btn" onClick={() => exportFloorPlanSVG(vertices, walls, allSolids, roomArea, roomHeight)}>Plan pro (SVG)</button>
           <button className="btn primary" onClick={() => exportGLTF(allSolids)} disabled={allSolids.length === 0}>Export 3D (GLTF)</button>
         </div>
+      </div>
+      <div className="project-bar">
+        <label>Projet</label>
+        <select className="select" value={activeProjectId} onChange={(e) => switchProject(e.target.value)}>
+          {Object.values(projects).sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <button className="btn" onClick={createNewProject}>+ Nouveau</button>
+        <button className="btn" onClick={renameActiveProject}>Renommer</button>
+        <button className="btn" onClick={deleteActiveProject} disabled={Object.keys(projects).length <= 1}>Supprimer</button>
+        <span className="autosave-hint">Enregistré automatiquement dans ce navigateur</span>
       </div>
       {importError && <div className="warning" style={{ margin: "8px 18px 0" }}>{importError}</div>}
 
