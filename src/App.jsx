@@ -408,6 +408,7 @@ export default function KitchenDesigner() {
   const [selectedWorktopUid, setSelectedWorktopUid] = useState(null);
   const [activeWallIndex, setActiveWallIndex] = useState(0);
   const [tab, setTab] = useState("room");
+  const [rightTab, setRightTab] = useState("layout");
   const [importError, setImportError] = useState("");
 
   const containerRef = useRef(null);
@@ -766,7 +767,7 @@ export default function KitchenDesigner() {
     }
     setPlacements((p) => [...p, { uid: id, catalogId, width: entry.defaultWidth, depth: entry.defaultDepth, wallIndex: activeWallIndex, offset: defaultOffset, standoff: 0 }]);
     setSelectedUid(id);
-    setTab("layout");
+    setRightTab("layout");
   }
   function updateWidth(id, w) {
     setPlacements((p) => p.map((it) => {
@@ -792,7 +793,7 @@ export default function KitchenDesigner() {
     const id = uid();
     setWorktops((ws) => [...ws, { uid: id, x: centroid.x, y: centroid.y, width: 200, depth: 60, angleDeg: 0, radii: [0, 0, 0, 0] }]);
     setSelectedWorktopUid(id);
-    setTab("worktop");
+    setRightTab("worktop");
   }
   function updateWorktop(id, patch) { setWorktops((ws) => ws.map((w) => (w.uid === id ? { ...w, ...patch } : w))); }
   function updateWorktopRadius(id, idx, val) {
@@ -854,6 +855,7 @@ export default function KitchenDesigner() {
         .btn.primary:hover { background:#c95f13; border-color:#c95f13; color:#fff; }
         .body { display:flex; flex:1; min-height:0; }
         .sidebar { width:310px; border-right:1px solid #d7dde3; background:#ffffff; display:flex; flex-direction:column; }
+        .sidebar-right { width:310px; border-left:1px solid #d7dde3; background:#ffffff; display:flex; flex-direction:column; }
         .tabs { display:flex; border-bottom:1px solid #d7dde3; }
         .tab { flex:1; padding:10px 0; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; text-transform:uppercase; background:none; border:none; color:#6b7789; cursor:pointer; border-bottom:2px solid transparent; }
         .tab.active { color:#1f6f93; border-bottom-color:#1f6f93; }
@@ -899,6 +901,7 @@ export default function KitchenDesigner() {
           .app { min-height: 100vh; height: auto; }
           .body { flex-direction: column; }
           .sidebar { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-right: none; border-bottom: 1px solid #d7dde3; }
+          .sidebar-right { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-left: none; border-top: 1px solid #d7dde3; }
           .header { padding: 10px 12px; }
           .header h1 { font-size: 13px; }
           .header .sub { font-size: 10px; }
@@ -935,8 +938,6 @@ export default function KitchenDesigner() {
           <div className="tabs">
             <button className={`tab ${tab === "room" ? "active" : ""}`} onClick={() => setTab("room")}>Pièce</button>
             <button className={`tab ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}>Catalogue</button>
-            <button className={`tab ${tab === "layout" ? "active" : ""}`} onClick={() => setTab("layout")}>Disposition</button>
-            <button className={`tab ${tab === "worktop" ? "active" : ""}`} onClick={() => setTab("worktop")}>Plans</button>
           </div>
 
           {tab === "room" && (
@@ -1002,7 +1003,15 @@ export default function KitchenDesigner() {
             </div>
           )}
 
-          {tab === "layout" && (
+        </div>
+
+        <div className="sidebar-right">
+          <div className="tabs">
+            <button className={`tab ${rightTab === "layout" ? "active" : ""}`} onClick={() => setRightTab("layout")}>Disposition</button>
+            <button className={`tab ${rightTab === "worktop" ? "active" : ""}`} onClick={() => setRightTab("worktop")}>Plans</button>
+          </div>
+
+          {rightTab === "layout" && (
             <div className="panel">
               {placements.length === 0 && <div className="empty">Aucun élément. Ajoute-en depuis le catalogue.</div>}
               {walls.map((w) => {
@@ -1083,7 +1092,7 @@ export default function KitchenDesigner() {
             </div>
           )}
 
-          {tab === "worktop" && (
+          {rightTab === "worktop" && (
             <div className="panel">
               <button className="btn" style={{ width: "100%", marginBottom: 12 }} onClick={addWorktop}>+ Ajouter un plan de travail</button>
               {worktops.length === 0 && <div className="empty">Aucun plan de travail. Il se place n'importe où dans la pièce, indépendamment des meubles — utile pour un îlot ou une extension de plan.</div>}
@@ -1158,29 +1167,39 @@ export default function KitchenDesigner() {
 
               {layout.map((item) => {
                 const bad = overlapFlags[item.uid];
+                const selected = selectedUid === item.uid;
                 const band = item.catalogEntry.band;
-                const opacity = band === "wall" ? 0.35 : band === "opening" ? 0.6 : 0.9;
-                const dash = band === "wall" ? "4,3" : undefined;
-                const stroke = selectedUid === item.uid ? "#e2711d" : bad ? "#d64545" : "#1d2733";
+                const opacity = selected ? 1 : band === "wall" ? 0.35 : band === "opening" ? 0.6 : 0.9;
+                const dash = band === "wall" && !selected ? "4,3" : undefined;
+                const stroke = selected ? "#e2711d" : bad ? "#d64545" : "#1d2733";
+                const pts = item.corners.map((c) => `${c.x},${c.y}`).join(" ");
                 return (
                   <g key={item.uid} onPointerDown={(e) => onModuleDown(item, e)} style={{ cursor: "grab" }}>
-                    <polygon points={item.corners.map((c) => `${c.x},${c.y}`).join(" ")}
+                    {selected && (
+                      <polygon points={pts} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />
+                    )}
+                    <polygon points={pts}
                       fill={item.catalogEntry.color} opacity={opacity}
-                      stroke={stroke} strokeWidth={selectedUid === item.uid || bad ? 1.6 : 0.7}
+                      stroke={stroke} strokeWidth={selected ? 2.6 : bad ? 1.6 : 0.7}
                       strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
                     <SymbolShapes item={item} />
                   </g>
                 );
               })}
 
-              {worktopItems.map((item) => (
-                <g key={item.uid} onPointerDown={(e) => onWorktopDown(item, e)} style={{ cursor: "move" }}>
-                  <path d={roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii)}
-                    fill="#c9a26a" opacity={0.6}
-                    stroke={selectedWorktopUid === item.uid ? "#e2711d" : "#8a6a3d"} strokeWidth={selectedWorktopUid === item.uid ? 1.8 : 0.8}
-                    vectorEffect="non-scaling-stroke" />
-                </g>
-              ))}
+              {worktopItems.map((item) => {
+                const selected = selectedWorktopUid === item.uid;
+                const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
+                return (
+                  <g key={item.uid} onPointerDown={(e) => onWorktopDown(item, e)} style={{ cursor: "move" }}>
+                    {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
+                    <path d={d}
+                      fill="#c9a26a" opacity={selected ? 0.9 : 0.6}
+                      stroke={selected ? "#e2711d" : "#8a6a3d"} strokeWidth={selected ? 2.6 : 0.8}
+                      vectorEffect="non-scaling-stroke" />
+                  </g>
+                );
+              })}
 
               {vertices.map((v, i) => (
                 <g key={i}>
