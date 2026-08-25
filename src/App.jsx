@@ -25,6 +25,18 @@ const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
 const GROUPS = ["Meubles", "Électroménager", "Ouvertures"];
 const BAND_LABEL = { floor: "Bas / électroménager", wall: "Haut", opening: "Ouvertures" };
 
+// Mobilier libre : positionnable n'importe où dans la pièce (x, y, angle),
+// pas rattaché à un mur. roundable = coins arrondis réglables (utile pour
+// approcher une table ronde en poussant les 4 rayons au maximum).
+const FREE_CATALOG = [
+  { id: "worktop", name: "Plan de travail", color: "#c9a26a", height: 4, yOffset: 85, defaultWidth: 200, defaultDepth: 60, roundable: true },
+  { id: "table", name: "Table", color: "#b98a52", height: 75, yOffset: 0, defaultWidth: 140, defaultDepth: 80, roundable: true },
+  { id: "chair", name: "Chaise", color: "#7c9473", height: 45, yOffset: 0, defaultWidth: 45, defaultDepth: 45, roundable: true },
+  { id: "banquette", name: "Banquette", color: "#6f8fa8", height: 45, yOffset: 0, defaultWidth: 150, defaultDepth: 50, roundable: true },
+  { id: "tv", name: "Télévision", color: "#20242b", height: 55, yOffset: 100, defaultWidth: 100, defaultDepth: 6, roundable: false },
+];
+const freeCatalogById = Object.fromEntries(FREE_CATALOG.map((c) => [c.id, c]));
+
 const DEFAULT_VERTICES = [
   { x: 280, y: -140 }, { x: 460, y: -140 }, { x: 460, y: 320 },
   { x: 0, y: 320 }, { x: 0, y: 0 }, { x: 280, y: 0 },
@@ -295,11 +307,11 @@ function exportFloorPlanSVG(vertices, walls, items, roomArea, roomHeight) {
   items.forEach((item) => {
     const isWall = item.catalogEntry.band === "wall";
     const isOpening = item.catalogEntry.band === "opening";
-    const isWorktop = item.catalogEntry.band === "worktop";
+    const isFree = item.catalogEntry.band === "free";
     const shiftedItem = { ...item, centerX: item.centerX + ox, centerY: item.centerY + oy };
-    if (isWorktop) {
+    if (isFree) {
       const d = roundedRectPathD(shiftedItem.centerX, shiftedItem.centerY, item.width, item.depth, item.u, item.v, item.radii);
-      body += `<path d="${d}" fill="#e8dcc8" stroke="#111" stroke-width="1.2"/>`;
+      body += `<path d="${d}" fill="${item.catalogEntry.color}" fill-opacity="0.55" stroke="#111" stroke-width="1.2"/>`;
     } else {
       const corners = item.corners.map((c) => tr(c));
       const fill = isOpening ? "#fff" : isWall ? "none" : "#f4f6f8";
@@ -337,7 +349,7 @@ function exportFloorPlanSVG(vertices, walls, items, roomArea, roomHeight) {
 // (colonnes prix unitaire / total laissées vides pour le devis)
 // ---------------------------------------------------------------------------
 function materialsCategory(catalogEntry) {
-  if (catalogEntry.band === "worktop") return "Plan de travail";
+  if (catalogEntry.band === "free") return "Mobilier libre";
   if (catalogEntry.band === "opening") return "Ouverture";
   if (catalogEntry.symbol && catalogEntry.band === "floor" && catalogEntry.name !== "Meuble bas") return "Électroménager";
   if (catalogEntry.band === "wall") return "Meuble haut";
@@ -349,16 +361,16 @@ function csvCell(value) {
 }
 function exportMaterialsCSV(items) {
   const groups = {};
-  const order = ["Meuble bas / rangement", "Meuble haut", "Électroménager", "Plan de travail", "Ouverture"];
+  const order = ["Meuble bas / rangement", "Meuble haut", "Électroménager", "Mobilier libre", "Ouverture"];
   items.forEach((item) => {
     const category = materialsCategory(item.catalogEntry);
-    const isWorktop = category === "Plan de travail";
+    const isFree = category === "Mobilier libre";
     const key = `${category}|${item.catalogEntry.name}|${item.width}|${item.depth}|${item.catalogEntry.height}`;
     if (!groups[key]) {
-      groups[key] = { category, name: item.catalogEntry.name, width: item.width, depth: item.depth, height: item.catalogEntry.height, qty: 0, isWorktop, locations: [] };
+      groups[key] = { category, name: item.catalogEntry.name, width: item.width, depth: item.depth, height: item.catalogEntry.height, qty: 0, isFree, locations: [] };
     }
     groups[key].qty += 1;
-    if (!isWorktop && item.wallIndex != null) {
+    if (!isFree && item.wallIndex != null) {
       const label = `Mur ${item.wallIndex + 1}`;
       if (!groups[key].locations.includes(label)) groups[key].locations.push(label);
     }
@@ -368,8 +380,8 @@ function exportMaterialsCSV(items) {
   Object.values(groups)
     .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || a.name.localeCompare(b.name))
     .forEach((g) => {
-      const surface = g.isWorktop ? ((g.width * g.depth) / 10000).toFixed(2) : "";
-      const location = g.isWorktop ? "Libre (îlot / extension)" : g.locations.join(", ");
+      const surface = g.isFree ? ((g.width * g.depth) / 10000).toFixed(2) : "";
+      const location = g.isFree ? "Libre" : g.locations.join(", ");
       rows.push([g.category, g.name, g.width, g.depth, g.height, g.qty, surface, location, "", ""]);
     });
 
@@ -404,7 +416,7 @@ const LS_ACTIVE = "atelier-cuisine-active-v1";
 function makeBlankProject(name) {
   return {
     id: uid(), name, savedAt: new Date().toISOString(),
-    vertices: DEFAULT_VERTICES, roomHeight: 240, placements: [], worktops: [], wallFlips: {},
+    vertices: DEFAULT_VERTICES, roomHeight: 240, placements: [], freeItems: [], wallFlips: {},
   };
 }
 function loadStore() {
@@ -451,10 +463,10 @@ export default function KitchenDesigner() {
   const [vertices, setVertices] = useState(initData.project.vertices);
   const [roomHeight, setRoomHeight] = useState(initData.project.roomHeight);
   const [placements, setPlacements] = useState(initData.project.placements);
-  const [worktops, setWorktops] = useState(initData.project.worktops);
+  const [freeItems, setFreeItems] = useState(initData.project.freeItems);
   const [wallFlips, setWallFlips] = useState(initData.project.wallFlips);
   const [selectedUid, setSelectedUid] = useState(null);
-  const [selectedWorktopUid, setSelectedWorktopUid] = useState(null);
+  const [selectedFreeUid, setSelectedFreeUid] = useState(null);
   const [activeWallIndex, setActiveWallIndex] = useState(0);
   const [tab, setTab] = useState("room");
   const [rightTab, setRightTab] = useState("layout");
@@ -465,7 +477,7 @@ export default function KitchenDesigner() {
   const three = useRef(null);
   const dragRef = useRef(null);
   const moduleDragRef = useRef(null);
-  const worktopDragRef = useRef(null);
+  const freeItemDragRef = useRef(null);
   const fileInputRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
@@ -513,7 +525,7 @@ export default function KitchenDesigner() {
     });
   }, [placements, walls, wallFlips]);
 
-  const worktopItems = useMemo(() => worktops.map((w) => {
+  const freeItemsComputed = useMemo(() => freeItems.map((w) => {
     const rad = (w.angleDeg * Math.PI) / 180;
     const u = { x: Math.cos(rad), y: Math.sin(rad) };
     const v = { x: -Math.sin(rad), y: Math.cos(rad) };
@@ -525,15 +537,18 @@ export default function KitchenDesigner() {
       { x: w.x - u.x * halfW + v.x * halfD, y: w.y - u.y * halfW + v.y * halfD },
     ];
     return { ...w, u, v, corners, angleRad: -rad };
-  }), [worktops]);
+  }), [freeItems]);
 
-  const worktopAsSolids = useMemo(() => worktopItems.map((w) => ({
-    uid: w.uid, width: w.width, depth: w.depth, radii: w.radii || [0, 0, 0, 0],
-    catalogEntry: { name: "Plan de travail", color: "#c9a26a", depth: w.depth, height: 4, yOffset: 85, band: "worktop", symbol: null },
-    centerX: w.x, centerY: w.y, corners: w.corners, angleRad: w.angleRad, u: w.u, v: w.v,
-  })), [worktopItems]);
+  const freeAsSolids = useMemo(() => freeItemsComputed.map((w) => {
+    const entry = freeCatalogById[w.typeId] || FREE_CATALOG[0];
+    return {
+      uid: w.uid, width: w.width, depth: w.depth, radii: w.radii || [0, 0, 0, 0],
+      catalogEntry: { name: entry.name, color: entry.color, depth: w.depth, height: entry.height, yOffset: entry.yOffset, band: "free", symbol: null },
+      centerX: w.x, centerY: w.y, corners: w.corners, angleRad: w.angleRad, u: w.u, v: w.v,
+    };
+  }), [freeItemsComputed]);
 
-  const allSolids = useMemo(() => [...layout, ...worktopAsSolids], [layout, worktopAsSolids]);
+  const allSolids = useMemo(() => [...layout, ...freeAsSolids], [layout, freeAsSolids]);
 
   const overlapFlags = useMemo(() => {
     const flags = {};
@@ -784,26 +799,26 @@ export default function KitchenDesigner() {
   }
 
   // --- glisser un plan de travail librement ---
-  function onWorktopDown(item, e) {
+  function onFreeItemDown(item, e) {
     e.stopPropagation(); e.preventDefault();
-    setSelectedWorktopUid(item.uid);
+    setSelectedFreeUid(item.uid);
     const p = clientToSvgPoint(e);
-    worktopDragRef.current = { uid: item.uid, startX: item.x, startY: item.y, pointerStart: p };
-    window.addEventListener("pointermove", onWorktopMove);
-    window.addEventListener("pointerup", onWorktopUp);
+    freeItemDragRef.current = { uid: item.uid, startX: item.x, startY: item.y, pointerStart: p };
+    window.addEventListener("pointermove", onFreeItemMove);
+    window.addEventListener("pointerup", onFreeItemUp);
   }
-  function onWorktopMove(e) {
-    const d = worktopDragRef.current;
+  function onFreeItemMove(e) {
+    const d = freeItemDragRef.current;
     if (!d) return;
     const p = clientToSvgPoint(e);
     if (!p) return;
     const dx = p.x - d.pointerStart.x, dy = p.y - d.pointerStart.y;
-    updateWorktop(d.uid, { x: Math.round((d.startX + dx) / 5) * 5, y: Math.round((d.startY + dy) / 5) * 5 });
+    updateFreeItem(d.uid, { x: Math.round((d.startX + dx) / 5) * 5, y: Math.round((d.startY + dy) / 5) * 5 });
   }
-  function onWorktopUp() {
-    worktopDragRef.current = null;
-    window.removeEventListener("pointermove", onWorktopMove);
-    window.removeEventListener("pointerup", onWorktopUp);
+  function onFreeItemUp() {
+    freeItemDragRef.current = null;
+    window.removeEventListener("pointermove", onFreeItemMove);
+    window.removeEventListener("pointerup", onFreeItemUp);
   }
 
   // --- actions modules ---
@@ -838,27 +853,37 @@ export default function KitchenDesigner() {
   function removeModule(id) { setPlacements((p) => p.filter((it) => it.uid !== id)); if (selectedUid === id) setSelectedUid(null); }
   function reassignWall(id, newWallIndex) { setPlacements((ps) => ps.map((p) => (p.uid === id ? { ...p, wallIndex: newWallIndex, offset: 0, standoff: 0 } : p))); }
 
-  // --- actions plans de travail ---
-  function addWorktop() {
+  // --- actions mobilier libre (table, chaises, banquette, TV, plan de travail) ---
+  function addFreeItem(typeId) {
+    const entry = freeCatalogById[typeId];
+    if (!entry) return;
     const id = uid();
-    setWorktops((ws) => [...ws, { uid: id, x: centroid.x, y: centroid.y, width: 200, depth: 60, angleDeg: 0, radii: [0, 0, 0, 0] }]);
-    setSelectedWorktopUid(id);
-    setRightTab("worktop");
+    setFreeItems((ws) => [...ws, { uid: id, typeId, x: centroid.x, y: centroid.y, width: entry.defaultWidth, depth: entry.defaultDepth, angleDeg: 0, radii: [0, 0, 0, 0] }]);
+    setSelectedFreeUid(id);
+    setRightTab("free");
   }
-  function updateWorktop(id, patch) { setWorktops((ws) => ws.map((w) => (w.uid === id ? { ...w, ...patch } : w))); }
-  function updateWorktopRadius(id, idx, val) {
-    setWorktops((ws) => ws.map((w) => {
+  function duplicateFreeItem(id) {
+    setFreeItems((ws) => {
+      const src = ws.find((w) => w.uid === id);
+      if (!src) return ws;
+      const copy = { ...src, uid: uid(), x: src.x + 30, y: src.y + 30 };
+      return [...ws, copy];
+    });
+  }
+  function updateFreeItem(id, patch) { setFreeItems((ws) => ws.map((w) => (w.uid === id ? { ...w, ...patch } : w))); }
+  function updateFreeItemRadius(id, idx, val) {
+    setFreeItems((ws) => ws.map((w) => {
       if (w.uid !== id) return w;
       const radii = [...(w.radii || [0, 0, 0, 0])];
       radii[idx] = Math.max(0, Number(val) || 0);
       return { ...w, radii };
     }));
   }
-  function removeWorktop(id) { setWorktops((ws) => ws.filter((w) => w.uid !== id)); if (selectedWorktopUid === id) setSelectedWorktopUid(null); }
+  function removeFreeItem(id) { setFreeItems((ws) => ws.filter((w) => w.uid !== id)); if (selectedFreeUid === id) setSelectedFreeUid(null); }
 
   function resetAll() {
-    setVertices(DEFAULT_VERTICES); setRoomHeight(240); setPlacements([]); setWorktops([]);
-    setWallFlips({}); setActiveWallIndex(0); setSelectedUid(null); setSelectedWorktopUid(null);
+    setVertices(DEFAULT_VERTICES); setRoomHeight(240); setPlacements([]); setFreeItems([]);
+    setWallFlips({}); setActiveWallIndex(0); setSelectedUid(null); setSelectedFreeUid(null);
   }
 
   // --- sauvegarde automatique locale (anti-rebond) du projet actif ---
@@ -868,19 +893,19 @@ export default function KitchenDesigner() {
       setProjects((prev) => {
         const existing = prev[activeProjectId];
         if (!existing) return prev;
-        const updated = { ...prev, [activeProjectId]: { ...existing, vertices, roomHeight, placements, worktops, wallFlips, savedAt: new Date().toISOString() } };
+        const updated = { ...prev, [activeProjectId]: { ...existing, vertices, roomHeight, placements, freeItems, wallFlips, savedAt: new Date().toISOString() } };
         persistProjects(updated);
         return updated;
       });
     }, 500);
     return () => clearTimeout(saveTimeoutRef.current);
-  }, [vertices, roomHeight, placements, worktops, wallFlips, activeProjectId]);
+  }, [vertices, roomHeight, placements, freeItems, wallFlips, activeProjectId]);
 
   // --- gestion multi-projets ---
   function loadProjectState(p) {
     setVertices(p.vertices); setRoomHeight(p.roomHeight); setPlacements(p.placements);
-    setWorktops(p.worktops); setWallFlips(p.wallFlips);
-    setActiveWallIndex(0); setSelectedUid(null); setSelectedWorktopUid(null);
+    setFreeItems(p.freeItems); setWallFlips(p.wallFlips);
+    setActiveWallIndex(0); setSelectedUid(null); setSelectedFreeUid(null);
   }
   function switchProject(id) {
     const p = projects[id];
@@ -926,7 +951,7 @@ export default function KitchenDesigner() {
 
   // --- export / import du projet complet ---
   function handleExportProject() {
-    exportProjectJSON({ name: projects[activeProjectId]?.name, vertices, roomHeight, placements, worktops, wallFlips });
+    exportProjectJSON({ name: projects[activeProjectId]?.name, vertices, roomHeight, placements, freeItems, wallFlips });
   }
   function triggerImport() { setImportError(""); fileInputRef.current?.click(); }
   function handleImportFile(e) {
@@ -944,7 +969,7 @@ export default function KitchenDesigner() {
           vertices: data.vertices,
           roomHeight: typeof data.roomHeight === "number" ? data.roomHeight : 240,
           placements: Array.isArray(data.placements) ? data.placements : [],
-          worktops: Array.isArray(data.worktops) ? data.worktops : [],
+          freeItems: Array.isArray(data.freeItems) ? data.freeItems : [],
           wallFlips: data.wallFlips && typeof data.wallFlips === "object" ? data.wallFlips : {},
         };
         const updated = { ...projects, [p.id]: p };
@@ -1149,7 +1174,7 @@ export default function KitchenDesigner() {
         <div className="sidebar-right">
           <div className="tabs">
             <button className={`tab ${rightTab === "layout" ? "active" : ""}`} onClick={() => setRightTab("layout")}>Disposition</button>
-            <button className={`tab ${rightTab === "worktop" ? "active" : ""}`} onClick={() => setRightTab("worktop")}>Plans</button>
+            <button className={`tab ${rightTab === "free" ? "active" : ""}`} onClick={() => setRightTab("free")}>Mobilier</button>
           </div>
 
           {rightTab === "layout" && (
@@ -1233,43 +1258,61 @@ export default function KitchenDesigner() {
             </div>
           )}
 
-          {rightTab === "worktop" && (
+          {rightTab === "free" && (
             <div className="panel">
-              <button className="btn" style={{ width: "100%", marginBottom: 12 }} onClick={addWorktop}>+ Ajouter un plan de travail</button>
-              {worktops.length === 0 && <div className="empty">Aucun plan de travail. Il se place n'importe où dans la pièce, indépendamment des meubles — utile pour un îlot ou une extension de plan.</div>}
-              {worktopItems.map((item) => (
-                <div key={item.uid} className={`layout-row ${selectedWorktopUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedWorktopUid(item.uid)}>
-                  <div className="top"><span className="name">Plan de travail</span><span className="w">{item.width}×{item.depth} cm</span></div>
-                  <div className="field" style={{ margin: "8px 0 0" }}>
-                    <label>Position X / Y (cm)</label>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input type="number" value={item.x} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktop(item.uid, { x: Number(ev.target.value) || 0 })} />
-                      <input type="number" value={item.y} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktop(item.uid, { y: Number(ev.target.value) || 0 })} />
-                    </div>
+              <div className="section-label">Ajouter</div>
+              {FREE_CATALOG.map((c) => (
+                <div className="catalog-item" key={c.id}>
+                  <div className="swatch" style={{ background: c.color }} />
+                  <div className="meta">
+                    <div className="name">{c.name}</div>
+                    <div className="dims">{c.defaultWidth}×{c.defaultDepth} cm</div>
                   </div>
-                  <div className="field" style={{ margin: "8px 0 0" }}>
-                    <label>Largeur / Profondeur (cm)</label>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input type="number" value={item.width} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktop(item.uid, { width: Math.max(10, Number(ev.target.value) || 10) })} />
-                      <input type="number" value={item.depth} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktop(item.uid, { depth: Math.max(10, Number(ev.target.value) || 10) })} />
-                    </div>
-                  </div>
-                  <div className="field" style={{ margin: "8px 0 0" }}>
-                    <label>Angle (°)</label>
-                    <input type="number" value={item.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktop(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
-                  </div>
-                  <div className="field radii-grid" style={{ margin: "8px 0 0" }}>
-                    <label>Rayon des coins (cm) — 0 = angle vif</label>
-                    {[0, 1, 2, 3].map((idx) => (
-                      <input key={idx} type="number" value={(item.radii || [0, 0, 0, 0])[idx]} placeholder={`Coin ${idx + 1}`}
-                        onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateWorktopRadius(item.uid, idx, ev.target.value)} />
-                    ))}
-                  </div>
-                  <div className="row-actions">
-                    <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeWorktop(item.uid); }}>Supprimer</button>
-                  </div>
+                  <button className="btn" onClick={() => addFreeItem(c.id)}>+</button>
                 </div>
               ))}
+
+              <div className="section-label" style={{ marginTop: 16 }}>Dans la pièce</div>
+              {freeItems.length === 0 && <div className="empty">Table, chaises, banquette, TV, plan de travail… tout ça se place n'importe où dans la pièce, indépendamment des murs — glisse-les librement sur le plan.</div>}
+              {freeItemsComputed.map((item) => {
+                const entry = freeCatalogById[item.typeId] || FREE_CATALOG[0];
+                return (
+                  <div key={item.uid} className={`layout-row ${selectedFreeUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedFreeUid(item.uid)}>
+                    <div className="top"><span className="name">{entry.name}</span><span className="w">{item.width}×{item.depth} cm</span></div>
+                    <div className="field" style={{ margin: "8px 0 0" }}>
+                      <label>Position X / Y (cm)</label>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input type="number" value={item.x} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { x: Number(ev.target.value) || 0 })} />
+                        <input type="number" value={item.y} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { y: Number(ev.target.value) || 0 })} />
+                      </div>
+                    </div>
+                    <div className="field" style={{ margin: "8px 0 0" }}>
+                      <label>Largeur / Profondeur (cm)</label>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input type="number" value={item.width} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { width: Math.max(10, Number(ev.target.value) || 10) })} />
+                        <input type="number" value={item.depth} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { depth: Math.max(10, Number(ev.target.value) || 10) })} />
+                      </div>
+                    </div>
+                    <div className="field" style={{ margin: "8px 0 0" }}>
+                      <label>Angle (°)</label>
+                      <input type="number" value={item.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
+                    </div>
+                    {entry.roundable && (
+                      <div className="field radii-grid" style={{ margin: "8px 0 0" }}>
+                        <label>Rayon des coins (cm) — pousse les 4 au max pour approcher un rond</label>
+                        {[0, 1, 2, 3].map((idx) => (
+                          <input key={idx} type="number" value={(item.radii || [0, 0, 0, 0])[idx]} placeholder={`Coin ${idx + 1}`}
+                            onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItemRadius(item.uid, idx, ev.target.value)} />
+                        ))}
+                      </div>
+                    )}
+                    <div className="row-actions">
+                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); duplicateFreeItem(item.uid); }}>Dupliquer</button>
+                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeFreeItem(item.uid); }}>Supprimer</button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1328,16 +1371,20 @@ export default function KitchenDesigner() {
                 );
               })}
 
-              {worktopItems.map((item) => {
-                const selected = selectedWorktopUid === item.uid;
+              {freeItemsComputed.map((item) => {
+                const selected = selectedFreeUid === item.uid;
+                const entry = freeCatalogById[item.typeId] || FREE_CATALOG[0];
                 const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
                 return (
-                  <g key={item.uid} onPointerDown={(e) => onWorktopDown(item, e)} style={{ cursor: "move" }}>
+                  <g key={item.uid} onPointerDown={(e) => onFreeItemDown(item, e)} style={{ cursor: "move" }}>
                     {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
                     <path d={d}
-                      fill="#c9a26a" opacity={selected ? 0.9 : 0.6}
-                      stroke={selected ? "#e2711d" : "#8a6a3d"} strokeWidth={selected ? 2.6 : 0.8}
+                      fill={entry.color} opacity={selected ? 0.95 : 0.65}
+                      stroke={selected ? "#e2711d" : "#1d2733"} strokeWidth={selected ? 2.6 : 0.7}
                       vectorEffect="non-scaling-stroke" />
+                    {item.width > 30 && (
+                      <text x={item.x} y={item.y + 3} textAnchor="middle" fontFamily="'IBM Plex Mono',monospace" fontSize="7" fill="#1d2733" pointerEvents="none">{entry.name}</text>
+                    )}
                   </g>
                 );
               })}
