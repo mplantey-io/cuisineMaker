@@ -20,9 +20,11 @@ const CATALOG = [
   { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 200, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80, yOffset: 0 },
   { id: "window", name: "Fenêtre", group: "Ouvertures", band: "opening", symbol: "window", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 120, widthMin: 40, widthMax: 180, widthStep: 10, defaultWidth: 100, yOffset: 90 },
   { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", color: "#cfe8f0", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 220, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180, yOffset: 0 },
+  { id: "double-door", name: "Porte double", group: "Ouvertures", band: "opening", symbol: "doubledoor", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 200, widthMin: 100, widthMax: 180, widthStep: 10, defaultWidth: 140, yOffset: 0 },
+  { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", insetFixture: true, color: "#4a90b8", depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, height: 5, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10, yOffset: 60 },
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
-const GROUPS = ["Meubles", "Électroménager", "Ouvertures"];
+const GROUPS = ["Meubles", "Électroménager", "Réseaux", "Ouvertures"];
 const BAND_LABEL = { floor: "Bas / électroménager", wall: "Haut", opening: "Ouvertures" };
 
 // Mobilier libre : positionnable n'importe où dans la pièce (x, y, angle),
@@ -158,6 +160,25 @@ function getSymbolShapes(item) {
       shapes.push({ type: "line", x1: mid.x, y1: mid.y, x2: armTip.x, y2: armTip.y });
       shapes.push({ type: "line", x1: armTip.x, y1: armTip.y, x2: arrowA.x, y2: arrowA.y });
       shapes.push({ type: "line", x1: armTip.x, y1: armTip.y, x2: arrowB.x, y2: arrowB.y });
+      break;
+    }
+    case "doubledoor": {
+      const half = w / 4;
+      const hingeL = L(-w / 2, 0), tipL = L(-w / 2, half * 0.9), midL = L(0, 0);
+      shapes.push({ type: "line", x1: hingeL.x, y1: hingeL.y, x2: tipL.x, y2: tipL.y });
+      shapes.push({ type: "arc", x1: tipL.x, y1: tipL.y, x2: midL.x, y2: midL.y, r: half, rot: angleDeg });
+      const hingeR = L(w / 2, 0), tipR = L(w / 2, half * 0.9), midR = L(0, 0);
+      shapes.push({ type: "line", x1: hingeR.x, y1: hingeR.y, x2: tipR.x, y2: tipR.y });
+      shapes.push({ type: "arc", x1: midR.x, y1: midR.y, x2: tipR.x, y2: tipR.y, r: half, rot: angleDeg });
+      break;
+    }
+    case "water": {
+      const r = Math.min(w, d) * 0.28;
+      const c = L(0, 0);
+      shapes.push({ type: "circle", cx: c.x, cy: c.y, r });
+      const p1 = L(-w / 2, 0), p2 = L(w / 2, 0), p3 = L(0, -d / 2), p4 = L(0, d / 2);
+      shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      shapes.push({ type: "line", x1: p3.x, y1: p3.y, x2: p4.x, y2: p4.y });
       break;
     }
     default: break;
