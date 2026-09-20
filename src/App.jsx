@@ -788,15 +788,21 @@ export default function KitchenDesigner() {
   const [items, setItems] = useState(initData.project.items);
   const [activeRoomId, setActiveRoomId] = useState(initData.project.rooms[0].id);
   const [selectedUid, setSelectedUid] = useState(null);
+  const [selectedWallIndex, setSelectedWallIndex] = useState(null);
+  const [wallEditIndex, setWallEditIndex] = useState(null);
+  const [wallEditPos, setWallEditPos] = useState(null);
   const [tab, setTab] = useState("room");
   const [show3D, setShow3D] = useState(false);
   const [importError, setImportError] = useState("");
 
   const containerRef = useRef(null);
   const svgRef = useRef(null);
+  const wrapRef = useRef(null);
   const three = useRef(null);
   const dragRef = useRef(null);
   const itemDragRef = useRef(null);
+  const wallDragRef = useRef(null);
+  const wallEditCancelRef = useRef(false);
   const fileInputRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
@@ -966,6 +972,23 @@ export default function KitchenDesigner() {
     t.updateCamera();
   }, [activeRoom, show3D]);
 
+  // --- la sélection/édition de mur ne concerne que la pièce affichée ---
+  useEffect(() => { setSelectedWallIndex(null); setWallEditIndex(null); }, [activeRoomId]);
+
+  // --- position écran du champ d'édition de longueur (recalculée hors rendu,
+  // une fois le DOM à jour, pour ne pas lire les refs pendant le rendu) ---
+  useEffect(() => {
+    if (wallEditIndex == null) { setWallEditPos(null); return; }
+    const w = edges[wallEditIndex];
+    const wrapEl = wrapRef.current;
+    if (!w || !wrapEl) { setWallEditPos(null); return; }
+    const midX = (w.A.x + w.B.x) / 2, midY = (w.A.y + w.B.y) / 2;
+    const screenPt = svgPointToScreen({ x: midX + w.normal.x * 14, y: midY + w.normal.y * 14 });
+    const wrapRect = wrapEl.getBoundingClientRect();
+    setWallEditPos(screenPt ? { left: screenPt.x - wrapRect.left, top: screenPt.y - wrapRect.top } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallEditIndex, edges]);
+
   // --- reconstruire les objets 3D de la pièce active ---
   useEffect(() => {
     const t = three.current;
@@ -994,6 +1017,17 @@ export default function KitchenDesigner() {
     if (!ctm) return null;
     const p = pt.matrixTransform(ctm.inverse());
     return { x: p.x, y: p.y };
+  }
+  // --- inverse de clientToSvgPoint : point du repère pièce (cm) -> pixels écran,
+  // utilisé pour positionner le champ d'édition de longueur au-dessus du SVG ---
+  function svgPointToScreen(pt) {
+    const svg = svgRef.current;
+    if (!svg || !pt) return null;
+    const spt = svg.createSVGPoint();
+    spt.x = pt.x; spt.y = pt.y;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    return spt.matrixTransform(ctm);
   }
   function onVertexDown(i, e) {
     e.stopPropagation(); e.preventDefault();
@@ -1027,6 +1061,59 @@ export default function KitchenDesigner() {
   }
   function updateRoomFloor(patch) {
     setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, floor: { ...(r.floor || DEFAULT_FLOOR), ...patch } } : r)));
+  }
+
+  // --- murs (segments du polygone) : clic = édition directe de la longueur,
+  // glisser = déplace le mur entier perpendiculairement (pousse/tire la pièce) ---
+  function onWallDown(i, e) {
+    e.stopPropagation(); e.preventDefault();
+    if (!activeRoom) return;
+    const p = clientToSvgPoint(e);
+    if (!p) return;
+    wallDragRef.current = { index: i, pointerStart: p, startVerts: activeRoom.vertices.map((v) => ({ ...v })), moved: false };
+    setSelectedWallIndex(i);
+    setWallEditIndex(null);
+    window.addEventListener("pointermove", onWallMove);
+    window.addEventListener("pointerup", onWallUp);
+  }
+  function onWallMove(e) {
+    const d = wallDragRef.current;
+    if (!d) return;
+    const p = clientToSvgPoint(e);
+    if (!p) return;
+    const dx = p.x - d.pointerStart.x, dy = p.y - d.pointerStart.y;
+    if (!d.moved && Math.hypot(dx, dy) < 3) return; // tolérance avant de considérer que c'est un glisser
+    d.moved = true;
+    const wall = roomEdges(d.startVerts)[d.index];
+    const dist = dx * wall.normal.x + dy * wall.normal.y;
+    const snapped = Math.round(dist / 5) * 5;
+    const iA = d.index, iB = (d.index + 1) % d.startVerts.length;
+    const move = (v, idx) => (idx === iA || idx === iB ? { x: v.x + wall.normal.x * snapped, y: v.y + wall.normal.y * snapped } : v);
+    setRooms((rs) => rs.map((r) => (r.id !== activeRoomId ? r : { ...r, vertices: d.startVerts.map(move) })));
+  }
+  function onWallUp() {
+    const d = wallDragRef.current;
+    wallDragRef.current = null;
+    window.removeEventListener("pointermove", onWallMove);
+    window.removeEventListener("pointerup", onWallUp);
+    if (d && !d.moved) setWallEditIndex(d.index); // simple clic (pas de glisser) -> édition de la longueur
+  }
+  function updateWallLength(i, newLenCm) {
+    setRooms((rs) => rs.map((r) => {
+      if (r.id !== activeRoomId) return r;
+      const verts = r.vertices;
+      const iA = i, iB = (i + 1) % verts.length;
+      const A = verts[iA], B = verts[iB];
+      const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      const ux = (B.x - A.x) / len, uy = (B.y - A.y) / len;
+      const newB = { x: A.x + ux * newLenCm, y: A.y + uy * newLenCm };
+      return { ...r, vertices: verts.map((v, idx) => (idx === iB ? newB : v)) };
+    }));
+  }
+  function commitWallEdit(i, rawValue) {
+    const n = Math.round(Number(rawValue));
+    if (Number.isFinite(n) && n > 0) updateWallLength(i, n);
+    setWallEditIndex(null);
   }
 
   // --- gestion des pièces ---
@@ -1268,7 +1355,8 @@ export default function KitchenDesigner() {
         .row-actions button { font-size:11px; padding:3px 7px; }
         .warning { background:#fdeaea; border:1px solid #d64545; color:#8a2020; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:6px 8px; border-radius:3px; margin-bottom:8px; }
         .main { flex:1; display:flex; flex-direction:column; min-width:0; background:#ffffff; }
-        .editor2d-wrap { flex:1; min-height:280px; border-bottom:1px solid #d7dde3; padding:6px; }
+        .editor2d-wrap { position:relative; flex:1; min-height:280px; border-bottom:1px solid #d7dde3; padding:6px; }
+        .wall-edit-input { position:absolute; transform:translate(-50%,-50%); width:64px; font-family:'IBM Plex Mono',monospace; font-size:12px; text-align:center; padding:3px 4px; border:1.5px solid #e2711d; border-radius:3px; background:#fff; color:#1d2733; z-index:5; }
         .viewer3d-bar { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid #d7dde3; }
         .viewer3d-wrap { height:320px; }
         .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; touch-action:none; }
@@ -1426,9 +1514,10 @@ export default function KitchenDesigner() {
         </div>
 
         <div className="main">
-          <div className="footer-hint">Points ambre = sommets de la pièce · objets = glisser librement, ou saisir les coordonnées dans la liste à droite</div>
-          <div className="editor2d-wrap">
-            <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ touchAction: "none" }}>
+          <div className="footer-hint">Points ambre = sommets de la pièce · murs = cliquer pour éditer la longueur, glisser pour déplacer · objets = glisser librement, ou saisir les coordonnées dans la liste à droite</div>
+          <div className="editor2d-wrap" ref={wrapRef}>
+            <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ touchAction: "none" }}
+              onPointerDown={() => { setSelectedWallIndex(null); setWallEditIndex(null); }}>
               <defs>
                 <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                   <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e3e7ec" strokeWidth="0.5" />
@@ -1448,10 +1537,15 @@ export default function KitchenDesigner() {
               {edges.map((w, i) => {
                 const midX = (w.A.x + w.B.x) / 2, midY = (w.A.y + w.B.y) / 2;
                 const lx = midX + w.normal.x * 14, ly = midY + w.normal.y * 14;
+                const wallSelected = selectedWallIndex === i;
                 return (
-                  <g key={i}>
-                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke="#1f6f93" strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
-                    <text x={lx} y={ly} textAnchor="middle" className="dim-text" fontSize="7">{w.length}</text>
+                  <g key={i} onPointerDown={(e) => onWallDown(i, e)} style={{ cursor: "pointer" }}>
+                    {/* zone de clic élargie, invisible, plus facile à viser que le trait fin */}
+                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" />
+                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke={wallSelected ? "#e2711d" : "#1f6f93"} strokeWidth={wallSelected ? 3 : 1.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+                    {wallEditIndex !== i && (
+                      <text x={lx} y={ly} textAnchor="middle" className="dim-text" fontSize={wallSelected ? 8.5 : 7} fontWeight={wallSelected ? 700 : 400} pointerEvents="none">{w.length}</text>
+                    )}
                   </g>
                 );
               })}
@@ -1488,6 +1582,25 @@ export default function KitchenDesigner() {
                 </g>
               ))}
             </svg>
+            {wallEditIndex != null && edges[wallEditIndex] && wallEditPos && (
+              <input
+                key={wallEditIndex}
+                type="number"
+                className="wall-edit-input"
+                style={{ left: wallEditPos.left, top: wallEditPos.top }}
+                autoFocus
+                defaultValue={Math.round(edges[wallEditIndex].length)}
+                onFocus={(e) => e.target.select()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.target.blur();
+                  else if (e.key === "Escape") { wallEditCancelRef.current = true; e.target.blur(); }
+                }}
+                onBlur={(e) => {
+                  if (wallEditCancelRef.current) { wallEditCancelRef.current = false; setWallEditIndex(null); return; }
+                  commitWallEdit(wallEditIndex, e.target.value);
+                }}
+              />
+            )}
           </div>
           <div className="viewer3d-bar">
             <div className="section-label" style={{ padding: 0 }}>{show3D ? "Vue 3D — glisser pour orbiter, molette/pincer pour zoomer" : "Vue 3D masquée"}</div>
