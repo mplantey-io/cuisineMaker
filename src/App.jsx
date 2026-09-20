@@ -54,6 +54,17 @@ const DEFAULT_VERTICES = [
   { x: 0, y: 320 }, { x: 0, y: 0 }, { x: 280, y: 0 },
 ];
 
+// Revêtement de sol par défaut d'une pièce — "none" = pas de motif (sol blanc uni).
+const DEFAULT_FLOOR = { type: "none", size: 15, size2: 90, color: "#d9c39a", colorAlt: "#c9ad7a", rotation: 0 };
+const FLOOR_TYPES = [
+  { id: "none", name: "Aucun (sol uni)" },
+  { id: "parquet-droit", name: "Parquet — lames droites" },
+  { id: "parquet-batonrompu", name: "Parquet — bâton rompu" },
+  { id: "carrelage-quadrillage", name: "Carrelage — quadrillage" },
+  { id: "carrelage-damier", name: "Carrelage — damier" },
+  { id: "carrelage-hexagone", name: "Carrelage — hexagones" },
+];
+
 // ---------------------------------------------------------------------------
 // Helpers génériques
 // ---------------------------------------------------------------------------
@@ -83,6 +94,119 @@ function roomEdges(vertices) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Motifs de sol — chaque motif est une tuile répétée (rectangles + polygones),
+// exprimée dans un repère local en cm, réutilisée pour le rendu SVG à l'écran,
+// l'export "plan pro" et la texture appliquée en 3D.
+// ---------------------------------------------------------------------------
+function hexPoints(cx, cy, s) {
+  const k = s * 0.8660254; // s * sqrt(3)/2
+  return [[cx, cy - s], [cx + k, cy - s / 2], [cx + k, cy + s / 2], [cx, cy + s], [cx - k, cy + s / 2], [cx - k, cy - s / 2]];
+}
+function getFloorPatternGeometry(floor) {
+  if (!floor || floor.type === "none") return null;
+  const size = Math.max(2, floor.size || 15);
+  const color = floor.color || DEFAULT_FLOOR.color;
+  const colorAlt = floor.colorAlt || DEFAULT_FLOOR.colorAlt;
+  switch (floor.type) {
+    case "parquet-droit": {
+      const w = size, l = Math.max(size * 1.5, floor.size2 || size * 6);
+      return {
+        tileWidth: l, tileHeight: w * 2, background: colorAlt,
+        rects: [{ x: 0, y: 0, w: l, h: w, fill: color }, { x: 0, y: w, w: l, h: w, fill: color }],
+        lines: [{ x1: 0, y1: w, x2: l, y2: w }, { x1: l / 2, y1: w, x2: l / 2, y2: 2 * w }],
+      };
+    }
+    // Chevrons entrelacés (2 lames horizontales + 1 lame verticale par tuile,
+    // pavage exact sans trou ni recouvrement) — évoque le motif bâton rompu.
+    case "parquet-batonrompu": {
+      const w = size;
+      return {
+        tileWidth: 3 * w, tileHeight: 2 * w, background: colorAlt,
+        rects: [
+          { x: 0, y: 0, w: 2 * w, h: w, fill: color },
+          { x: 2 * w, y: 0, w: w, h: 2 * w, fill: color },
+          { x: 0, y: w, w: 2 * w, h: w, fill: color },
+        ],
+        lines: [{ x1: 0, y1: w, x2: 2 * w, y2: w }, { x1: 2 * w, y1: 0, x2: 2 * w, y2: 2 * w }],
+      };
+    }
+    case "carrelage-quadrillage": {
+      const t = size, j = Math.max(0.4, size * 0.05);
+      return { tileWidth: t, tileHeight: t, background: colorAlt, rects: [{ x: j, y: j, w: t - 2 * j, h: t - 2 * j, fill: color }], lines: [] };
+    }
+    case "carrelage-damier": {
+      const t = size;
+      return {
+        tileWidth: 2 * t, tileHeight: 2 * t, background: color,
+        rects: [{ x: t, y: 0, w: t, h: t, fill: colorAlt }, { x: 0, y: t, w: t, h: t, fill: colorAlt }],
+        lines: [],
+      };
+    }
+    case "carrelage-hexagone": {
+      const s = size / 1.6;
+      const w = s * 1.7320508, h = s * 3;
+      const centers = [[w / 2, s], [0, 2.5 * s], [w, 2.5 * s], [0, -0.5 * s], [w, -0.5 * s]];
+      return { tileWidth: w, tileHeight: h, background: colorAlt, polygons: centers.map((c) => ({ points: hexPoints(c[0], c[1], s), fill: color })) };
+    }
+    default: return null;
+  }
+}
+function FloorPatternDef({ id, floor }) {
+  const geo = useMemo(() => getFloorPatternGeometry(floor), [floor]);
+  if (!geo) return null;
+  const strokeW = Math.max(0.2, (floor.size || 15) * 0.02);
+  return (
+    <pattern id={id} patternUnits="userSpaceOnUse" width={geo.tileWidth} height={geo.tileHeight} patternTransform={`rotate(${floor.rotation || 0})`}>
+      <rect x={0} y={0} width={geo.tileWidth} height={geo.tileHeight} fill={geo.background} />
+      {(geo.rects || []).map((r, i) => <rect key={`r${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill={r.fill} stroke="rgba(0,0,0,0.22)" strokeWidth={strokeW} />)}
+      {(geo.polygons || []).map((p, i) => <polygon key={`p${i}`} points={p.points.map((pt) => pt.join(",")).join(" ")} fill={p.fill} stroke="rgba(0,0,0,0.22)" strokeWidth={strokeW} />)}
+      {(geo.lines || []).map((l, i) => <line key={`l${i}`} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="rgba(0,0,0,0.22)" strokeWidth={strokeW} />)}
+    </pattern>
+  );
+}
+// --- texture canvas (3D) construite à partir de la même géométrie que le SVG ---
+function buildFloorTexture(floor) {
+  const geo = getFloorPatternGeometry(floor);
+  if (!geo || typeof document === "undefined") return null;
+  const scale = 6; // px par cm
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(geo.tileWidth * scale));
+  canvas.height = Math.max(1, Math.round(geo.tileHeight * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = geo.background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = Math.max(1, (floor.size || 15) * 0.02 * scale);
+  (geo.rects || []).forEach((r) => { ctx.fillStyle = r.fill; ctx.fillRect(r.x * scale, r.y * scale, r.w * scale, r.h * scale); ctx.strokeRect(r.x * scale, r.y * scale, r.w * scale, r.h * scale); });
+  (geo.polygons || []).forEach((p) => {
+    ctx.fillStyle = p.fill;
+    ctx.beginPath();
+    p.points.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(x * scale, y * scale); else ctx.lineTo(x * scale, y * scale); });
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+  (geo.lines || []).forEach((l) => { ctx.beginPath(); ctx.moveTo(l.x1 * scale, l.y1 * scale); ctx.lineTo(l.x2 * scale, l.y2 * scale); ctx.stroke(); });
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
+  texture.center.set(0.5, 0.5);
+  texture.rotation = ((floor.rotation || 0) * Math.PI) / 180;
+  texture.repeat.set(1 / (geo.tileWidth / 100), 1 / (geo.tileHeight / 100));
+  texture.needsUpdate = true;
+  return texture;
+}
+function buildFloorPatternDefString(id, floor) {
+  const geo = getFloorPatternGeometry(floor);
+  if (!geo) return "";
+  const strokeW = Math.max(0.2, (floor.size || 15) * 0.02);
+  const rectsSvg = (geo.rects || []).map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${r.fill}" stroke="rgba(0,0,0,0.22)" stroke-width="${strokeW}"/>`).join("");
+  const polysSvg = (geo.polygons || []).map((p) => `<polygon points="${p.points.map((pt) => pt.join(",")).join(" ")}" fill="${p.fill}" stroke="rgba(0,0,0,0.22)" stroke-width="${strokeW}"/>`).join("");
+  const linesSvg = (geo.lines || []).map((l) => `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="rgba(0,0,0,0.22)" stroke-width="${strokeW}"/>`).join("");
+  return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${geo.tileWidth}" height="${geo.tileHeight}" patternTransform="rotate(${floor.rotation || 0})"><rect width="${geo.tileWidth}" height="${geo.tileHeight}" fill="${geo.background}"/>${rectsSvg}${polysSvg}${linesSvg}</pattern>`;
+}
 // --- géométrie d'un objet à partir de x, y, angle (tout est libre) ---
 function computeItemGeometry(item) {
   const entry = catalogById[item.catalogId];
@@ -390,14 +514,20 @@ function exportFloorPlanSVG(rooms, items) {
   const totalWidth = Math.max(...perRoom.map((r) => r.w)) + padOut * 2;
   const totalHeight = perRoom.reduce((s, r) => s + r.h + titleHeight + gapBetweenRooms, 0) + padOut;
 
+  let defs = "";
   let body = "";
   let cursorY = padOut;
-  perRoom.forEach(({ room, minX, minY, w, h, items: roomItems, area }) => {
+  perRoom.forEach(({ room, minX, minY, w, h, items: roomItems, area }, roomIdx) => {
     const ox = -minX + padOut, oy = -minY + cursorY + titleHeight;
     const tr = (p) => ({ x: p.x + ox, y: p.y + oy });
 
+    const floor = room.floor && room.floor.type !== "none" ? room.floor : null;
+    const patternId = `floorpat-${roomIdx}`;
+    const floorFill = floor ? `url(#${patternId})` : "#fff";
+    if (floor) defs += buildFloorPatternDefString(patternId, floor);
+
     body += `<text x="${padOut}" y="${cursorY + 20}" font-family="monospace" font-size="16" font-weight="bold" fill="#111">${room.name} — ${area} m²</text>`;
-    body += `<polygon points="${room.vertices.map((v) => { const p = tr(v); return `${p.x},${p.y}`; }).join(" ")}" fill="#fff" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+    body += `<polygon points="${room.vertices.map((v) => { const p = tr(v); return `${p.x},${p.y}`; }).join(" ")}" fill="${floorFill}" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
 
     roomEdges(room.vertices).forEach((wl) => {
       const A = tr(wl.A), B = tr(wl.B);
@@ -432,7 +562,7 @@ function exportFloorPlanSVG(rooms, items) {
   const now = new Date();
   body += `<text x="${padOut}" y="${totalHeight - 20}" font-family="monospace" font-size="10" fill="#555">Cotes en mètres · ${now.toLocaleDateString("fr-FR")} · document de travail, non contractuel</text>`;
 
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">\n<rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff"/>\n${body}\n</svg>`;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">\n<defs>${defs}</defs>\n<rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff"/>\n${body}\n</svg>`;
 
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
@@ -510,7 +640,7 @@ function makeBlankProject(name) {
   const roomId = uid();
   return {
     id: uid(), name, savedAt: new Date().toISOString(),
-    rooms: [{ id: roomId, name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240 }],
+    rooms: [{ id: roomId, name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } }],
     items: [],
   };
 }
@@ -535,7 +665,7 @@ function legacyOrientation(vertices) {
 function migrateLegacyProject(p) {
   const vertices = Array.isArray(p.vertices) && p.vertices.length >= 3 ? p.vertices : DEFAULT_VERTICES;
   const roomId = uid();
-  const room = { id: roomId, name: "Cuisine", vertices, height: typeof p.roomHeight === "number" ? p.roomHeight : 240 };
+  const room = { id: roomId, name: "Cuisine", vertices, height: typeof p.roomHeight === "number" ? p.roomHeight : 240, floor: { ...DEFAULT_FLOOR } };
   const items = [];
   const orient = legacyOrientation(vertices);
   const walls = vertices.map((A, i) => legacyWallGeom(A, vertices[(i + 1) % vertices.length], orient));
@@ -571,8 +701,9 @@ function normalizeProject(p) {
       name: r.name || "Pièce",
       vertices: Array.isArray(r.vertices) && r.vertices.length >= 3 ? r.vertices : DEFAULT_VERTICES,
       height: typeof r.height === "number" ? r.height : 240,
+      floor: r.floor && typeof r.floor === "object" ? { ...DEFAULT_FLOOR, ...r.floor } : { ...DEFAULT_FLOOR },
     }));
-    const finalRooms = rooms.length ? rooms : [{ id: uid(), name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240 }];
+    const finalRooms = rooms.length ? rooms : [{ id: uid(), name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } }];
     const roomIds = new Set(finalRooms.map((r) => r.id));
     const fallbackRoomId = finalRooms[0].id;
     const items = p.items
@@ -811,7 +942,11 @@ export default function KitchenDesigner() {
     const shape = new THREE.Shape(shapePts);
     const floorGeo = new THREE.ShapeGeometry(shape);
     floorGeo.rotateX(-Math.PI / 2);
-    t.roomGroup.add(new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide })));
+    const floorTexture = buildFloorTexture(activeRoom.floor || DEFAULT_FLOOR);
+    const floorMat = floorTexture
+      ? new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1, side: THREE.DoubleSide })
+      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide });
+    t.roomGroup.add(new THREE.Mesh(floorGeo, floorMat));
 
     const wallMat = new THREE.LineBasicMaterial({ color: 0x1f6f93, transparent: true, opacity: 0.7 });
     activeRoom.vertices.forEach((A, i) => {
@@ -890,11 +1025,14 @@ export default function KitchenDesigner() {
   function updateRoomHeight(val) {
     setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, height: val } : r)));
   }
+  function updateRoomFloor(patch) {
+    setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, floor: { ...(r.floor || DEFAULT_FLOOR), ...patch } } : r)));
+  }
 
   // --- gestion des pièces ---
   function addRoom() {
     const name = window.prompt("Nom de la nouvelle pièce", `Pièce ${rooms.length + 1}`) || `Pièce ${rooms.length + 1}`;
-    const r = { id: uid(), name, vertices: DEFAULT_VERTICES, height: 240 };
+    const r = { id: uid(), name, vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } };
     setRooms((rs) => [...rs, r]);
     setActiveRoomId(r.id);
   }
@@ -1217,6 +1355,42 @@ export default function KitchenDesigner() {
               </div>
               <div className="field"><label>Surface</label><div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 13 }}>{roomArea} m²</div></div>
 
+              <div className="section-label">Revêtement de sol</div>
+              <div className="field">
+                <label>Motif</label>
+                <select className="select" value={(activeRoom.floor || DEFAULT_FLOOR).type} onChange={(e) => updateRoomFloor({ type: e.target.value })}>
+                  {FLOOR_TYPES.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </div>
+              {(activeRoom.floor || DEFAULT_FLOOR).type !== "none" && (
+                <>
+                  <div className="field">
+                    <label>{(activeRoom.floor.type || "").startsWith("parquet") ? "Largeur des lames (cm)" : "Taille du carreau (cm)"}</label>
+                    <input type="number" min={2} max={120} value={activeRoom.floor.size}
+                      onChange={(e) => updateRoomFloor({ size: Math.max(2, Number(e.target.value) || 2) })} />
+                  </div>
+                  {activeRoom.floor.type === "parquet-droit" && (
+                    <div className="field">
+                      <label>Longueur des lames (cm)</label>
+                      <input type="number" min={activeRoom.floor.size * 1.5} max={300} value={activeRoom.floor.size2}
+                        onChange={(e) => updateRoomFloor({ size2: Math.max(activeRoom.floor.size * 1.5, Number(e.target.value) || 0) })} />
+                    </div>
+                  )}
+                  <div className="field">
+                    <label>Couleur principale</label>
+                    <input type="color" value={activeRoom.floor.color} onChange={(e) => updateRoomFloor({ color: e.target.value })} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                  </div>
+                  <div className="field">
+                    <label>{activeRoom.floor.type === "carrelage-quadrillage" ? "Couleur des joints" : "Couleur secondaire"}</label>
+                    <input type="color" value={activeRoom.floor.colorAlt} onChange={(e) => updateRoomFloor({ colorAlt: e.target.value })} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                  </div>
+                  <div className="field">
+                    <label>Orientation du motif : {activeRoom.floor.rotation}°</label>
+                    <input type="range" min={0} max={165} step={15} value={activeRoom.floor.rotation} onChange={(e) => updateRoomFloor({ rotation: Number(e.target.value) })} />
+                  </div>
+                </>
+              )}
+
               <div className="section-label">Sommets du polygone</div>
               {activeRoom.vertices.map((v, i) => (
                 <div className="vertex-row" key={i}>
@@ -1259,9 +1433,16 @@ export default function KitchenDesigner() {
                 <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                   <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e3e7ec" strokeWidth="0.5" />
                 </pattern>
+                {activeRoom && <FloorPatternDef id="floorpat-active" floor={activeRoom.floor || DEFAULT_FLOOR} />}
               </defs>
               <rect x={bounds.minX} y={bounds.minY} width={bounds.w} height={bounds.h} fill="#ffffff" />
-              {activeRoom && <polygon points={polyPoints} fill="url(#grid)" stroke="none" />}
+              {activeRoom && (
+                <polygon
+                  points={polyPoints}
+                  fill={activeRoom.floor && activeRoom.floor.type !== "none" ? "url(#floorpat-active)" : "url(#grid)"}
+                  stroke="none"
+                />
+              )}
               {activeRoom && <text x={centroid.x} y={centroid.y} textAnchor="middle" className="dim-text" fontSize="14" fontWeight="600">{roomArea} m²</text>}
 
               {edges.map((w, i) => {
