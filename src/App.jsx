@@ -117,20 +117,10 @@ function getFloorPatternGeometry(floor) {
         lines: [{ x1: 0, y1: w, x2: l, y2: w }, { x1: l / 2, y1: w, x2: l / 2, y2: 2 * w }],
       };
     }
-    // Chevrons entrelacés (2 lames horizontales + 1 lame verticale par tuile,
-    // pavage exact sans trou ni recouvrement) — évoque le motif bâton rompu.
-    case "parquet-batonrompu": {
-      const w = size;
-      return {
-        tileWidth: 3 * w, tileHeight: 2 * w, background: colorAlt,
-        rects: [
-          { x: 0, y: 0, w: 2 * w, h: w, fill: color },
-          { x: 2 * w, y: 0, w: w, h: 2 * w, fill: color },
-          { x: 0, y: w, w: 2 * w, h: w, fill: color },
-        ],
-        lines: [{ x1: 0, y1: w, x2: 2 * w, y2: w }, { x1: 2 * w, y1: 0, x2: 2 * w, y2: 2 * w }],
-      };
-    }
+    // Le bâton rompu (chaque lame perpendiculaire à la précédente, en zigzag
+    // continu) n'est pas généré ici : voir generateHerringbonePlanks ci-dessous
+    // — ce motif n'a pas de petite tuile rectangulaire qui se répète tel quel,
+    // il est généré lame par lame sur toute la surface de la pièce.
     case "carrelage-quadrillage": {
       const t = size, j = Math.max(0.4, size * 0.05);
       return { tileWidth: t, tileHeight: t, background: colorAlt, rects: [{ x: j, y: j, w: t - 2 * j, h: t - 2 * j, fill: color }], lines: [] };
@@ -152,6 +142,30 @@ function getFloorPatternGeometry(floor) {
     default: return null;
   }
 }
+// --- bâton rompu : génère les lames une à une pour couvrir un rectangle donné
+// (le vrai motif n'a pas de petite tuile qui se répète en grille axée x/y —
+// chaque lame est perpendiculaire à la précédente et forme un zigzag continu ;
+// construction vérifiée : la chaîne (l,l) avance en alternant H/V par pas de
+// (l-w,w)/(w,l-w), et les chaînes voisines sont décalées de (-w,w)) ---
+function generateHerringbonePlanks(w, l, minX, minY, maxX, maxY) {
+  const pad = l * 1.5;
+  const bx0 = minX - pad, by0 = minY - pad, bx1 = maxX + pad, by1 = maxY + pad;
+  const span = (bx1 - bx0) + (by1 - by0);
+  const kCount = Math.min(400, Math.ceil(span / w) + 3);
+  const steps = Math.min(400, Math.ceil((2 * span) / Math.max(1, l - w)) + 8);
+  const planks = [];
+  for (let k = -kCount; k <= kCount; k++) {
+    let x = bx0 - w * k, y = by0 + w * k;
+    let horizontal = true;
+    for (let i = 0; i < steps; i++) {
+      const rw = horizontal ? l : w, rh = horizontal ? w : l;
+      if (x < bx1 && x + rw > bx0 && y < by1 && y + rh > by0) planks.push({ x, y, w: rw, h: rh });
+      if (horizontal) { x += l - w; y += w; } else { x += w; y += l - w; }
+      horizontal = !horizontal;
+    }
+  }
+  return planks;
+}
 function FloorPatternDef({ id, floor }) {
   const geo = useMemo(() => getFloorPatternGeometry(floor), [floor]);
   if (!geo) return null;
@@ -165,11 +179,77 @@ function FloorPatternDef({ id, floor }) {
     </pattern>
   );
 }
+// --- rendu du bâton rompu, pièce active (2D) : lames générées sur le
+// rectangle englobant puis découpées à la forme exacte de la pièce ---
+function HerringboneFloor({ floor, bounds, vertices, clipId }) {
+  const w = Math.max(2, floor.size || 15), l = Math.max(w * 1.5, w * 6);
+  const planks = useMemo(
+    () => generateHerringbonePlanks(w, l, bounds.minX, bounds.minY, bounds.minX + bounds.w, bounds.minY + bounds.h),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [w, l, bounds.minX, bounds.minY, bounds.w, bounds.h]
+  );
+  const cx = bounds.minX + bounds.w / 2, cy = bounds.minY + bounds.h / 2;
+  const strokeW = Math.max(0.2, w * 0.05);
+  return (
+    <g clipPath={`url(#${clipId})`}>
+      <polygon points={vertices.map((v) => `${v.x},${v.y}`).join(" ")} fill={floor.colorAlt || DEFAULT_FLOOR.colorAlt} />
+      <g transform={`rotate(${floor.rotation || 0} ${cx} ${cy})`}>
+        {planks.map((p, i) => (
+          <rect key={i} x={p.x} y={p.y} width={p.w} height={p.h} fill={floor.color || DEFAULT_FLOOR.color} stroke="rgba(0,0,0,0.22)" strokeWidth={strokeW} />
+        ))}
+      </g>
+    </g>
+  );
+}
+function buildHerringboneSVGString(floor, clipId, vertices, minX, minY, maxX, maxY) {
+  const w = Math.max(2, floor.size || 15), l = Math.max(w * 1.5, w * 6);
+  const planks = generateHerringbonePlanks(w, l, minX, minY, maxX, maxY);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const strokeW = Math.max(0.2, w * 0.05);
+  const color = floor.color || DEFAULT_FLOOR.color, colorAlt = floor.colorAlt || DEFAULT_FLOOR.colorAlt;
+  const clipDef = `<clipPath id="${clipId}"><polygon points="${vertices.map((v) => `${v.x},${v.y}`).join(" ")}"/></clipPath>`;
+  const bg = `<polygon points="${vertices.map((v) => `${v.x},${v.y}`).join(" ")}" fill="${colorAlt}"/>`;
+  const planksSvg = planks.map((p) => `<rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" fill="${color}" stroke="rgba(0,0,0,0.22)" stroke-width="${strokeW}"/>`).join("");
+  const body = `<g clip-path="url(#${clipId})">${bg}<g transform="rotate(${floor.rotation || 0} ${cx} ${cy})">${planksSvg}</g></g>`;
+  return { clipDef, body };
+}
 // --- texture canvas (3D) construite à partir de la même géométrie que le SVG ---
+function finalizeFloorTexture(canvas, tileWidthCm, tileHeightCm, rotationDeg) {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
+  texture.center.set(0.5, 0.5);
+  texture.rotation = ((rotationDeg || 0) * Math.PI) / 180;
+  texture.repeat.set(1 / (tileWidthCm / 100), 1 / (tileHeightCm / 100));
+  texture.needsUpdate = true;
+  return texture;
+}
 function buildFloorTexture(floor) {
-  const geo = getFloorPatternGeometry(floor);
-  if (!geo || typeof document === "undefined") return null;
+  if (!floor || floor.type === "none" || typeof document === "undefined") return null;
   const scale = 6; // px par cm
+  if (floor.type === "parquet-batonrompu") {
+    // Pas de petite tuile ici (voir generateHerringbonePlanks) : on génère les
+    // lames sur une zone virtuelle assez grande pour paraître continue une
+    // fois répétée en 3D (léger raccord invisible au zoom d'une vue d'ensemble).
+    const w = Math.max(2, floor.size || 15), l = Math.max(w * 1.5, w * 6);
+    const tile = l * 4;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = Math.max(1, Math.round(tile * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = floor.colorAlt || DEFAULT_FLOOR.colorAlt;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = floor.color || DEFAULT_FLOOR.color;
+    ctx.strokeStyle = "rgba(0,0,0,0.22)";
+    ctx.lineWidth = Math.max(1, w * 0.05 * scale);
+    generateHerringbonePlanks(w, l, 0, 0, tile, tile).forEach((p) => {
+      ctx.fillRect(p.x * scale, p.y * scale, p.w * scale, p.h * scale);
+      ctx.strokeRect(p.x * scale, p.y * scale, p.w * scale, p.h * scale);
+    });
+    return finalizeFloorTexture(canvas, tile, tile, 0); // rotation déjà "bakée" dans les lames générées à plat ici
+  }
+  const geo = getFloorPatternGeometry(floor);
+  if (!geo) return null;
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(geo.tileWidth * scale));
   canvas.height = Math.max(1, Math.round(geo.tileHeight * scale));
@@ -188,15 +268,7 @@ function buildFloorTexture(floor) {
     ctx.stroke();
   });
   (geo.lines || []).forEach((l) => { ctx.beginPath(); ctx.moveTo(l.x1 * scale, l.y1 * scale); ctx.lineTo(l.x2 * scale, l.y2 * scale); ctx.stroke(); });
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
-  texture.center.set(0.5, 0.5);
-  texture.rotation = ((floor.rotation || 0) * Math.PI) / 180;
-  texture.repeat.set(1 / (geo.tileWidth / 100), 1 / (geo.tileHeight / 100));
-  texture.needsUpdate = true;
-  return texture;
+  return finalizeFloorTexture(canvas, geo.tileWidth, geo.tileHeight, floor.rotation);
 }
 function buildFloorPatternDefString(id, floor) {
   const geo = getFloorPatternGeometry(floor);
@@ -523,11 +595,20 @@ function exportFloorPlanSVG(rooms, items) {
 
     const floor = room.floor && room.floor.type !== "none" ? room.floor : null;
     const patternId = `floorpat-${roomIdx}`;
-    const floorFill = floor ? `url(#${patternId})` : "#fff";
-    if (floor) defs += buildFloorPatternDefString(patternId, floor);
+    const trVerts = room.vertices.map((v) => tr(v));
+    const trXs = trVerts.map((v) => v.x), trYs = trVerts.map((v) => v.y);
 
     body += `<text x="${padOut}" y="${cursorY + 20}" font-family="monospace" font-size="16" font-weight="bold" fill="#111">${room.name} — ${area} m²</text>`;
-    body += `<polygon points="${room.vertices.map((v) => { const p = tr(v); return `${p.x},${p.y}`; }).join(" ")}" fill="${floorFill}" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+    if (floor && floor.type === "parquet-batonrompu") {
+      const hb = buildHerringboneSVGString(floor, `floorclip-${roomIdx}`, trVerts, Math.min(...trXs), Math.min(...trYs), Math.max(...trXs), Math.max(...trYs));
+      defs += hb.clipDef;
+      body += hb.body;
+      body += `<polygon points="${trVerts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+    } else {
+      const floorFill = floor ? `url(#${patternId})` : "#fff";
+      if (floor) defs += buildFloorPatternDefString(patternId, floor);
+      body += `<polygon points="${trVerts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="${floorFill}" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+    }
 
     roomEdges(room.vertices).forEach((wl) => {
       const A = tr(wl.A), B = tr(wl.B);
@@ -1523,14 +1604,19 @@ export default function KitchenDesigner() {
                   <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e3e7ec" strokeWidth="0.5" />
                 </pattern>
                 {activeRoom && <FloorPatternDef id="floorpat-active" floor={activeRoom.floor || DEFAULT_FLOOR} />}
+                {activeRoom && <clipPath id="floorclip-active"><polygon points={polyPoints} /></clipPath>}
               </defs>
               <rect x={bounds.minX} y={bounds.minY} width={bounds.w} height={bounds.h} fill="#ffffff" />
-              {activeRoom && (
-                <polygon
-                  points={polyPoints}
-                  fill={activeRoom.floor && activeRoom.floor.type !== "none" ? "url(#floorpat-active)" : "url(#grid)"}
-                  stroke="none"
-                />
+              {activeRoom && (activeRoom.floor || DEFAULT_FLOOR).type === "parquet-batonrompu" ? (
+                <HerringboneFloor floor={activeRoom.floor} bounds={bounds} vertices={activeRoom.vertices} clipId="floorclip-active" />
+              ) : (
+                activeRoom && (
+                  <polygon
+                    points={polyPoints}
+                    fill={activeRoom.floor && activeRoom.floor.type !== "none" ? "url(#floorpat-active)" : "url(#grid)"}
+                    stroke="none"
+                  />
+                )
               )}
               {activeRoom && <text x={centroid.x} y={centroid.y} textAnchor="middle" className="dim-text" fontSize="14" fontWeight="600">{roomArea} m²</text>}
 
