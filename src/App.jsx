@@ -2,42 +2,52 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 // ---------------------------------------------------------------------------
-// Catalogue de modules paramétriques (dimensions en cm)
-// band: "floor" (au sol) | "wall" (suspendu) | "opening" (porte/fenêtre/baie)
-// insetFixture: posé/encastré sur un meuble existant (évier, plaque) —
-//   n'entre pas dans les contrôles de chevauchement ni de largeur du mur.
+// Catalogue unifié — tout objet est placé librement (x, y, angle) dans une
+// pièce, quel que soit son type. "band" ne sert plus qu'au rendu (opacité,
+// hauteur de pose) — il n'y a plus de notion de mur porteur.
 // ---------------------------------------------------------------------------
 const CATALOG = [
-  { id: "base-cabinet", name: "Meuble bas", group: "Meubles", band: "floor", symbol: null, color: "#3b6ea5", depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, height: 85, widthMin: 30, widthMax: 120, widthStep: 5, defaultWidth: 60, yOffset: 0 },
-  { id: "drawer-unit", name: "Bloc tiroirs", group: "Meubles", band: "floor", symbol: null, color: "#4a7fb5", depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, height: 85, widthMin: 30, widthMax: 90, widthStep: 5, defaultWidth: 45, yOffset: 0 },
-  { id: "corner-base", name: "Meuble d'angle bas", group: "Meubles", band: "floor", symbol: null, color: "#355d82", depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, height: 85, widthMin: 90, widthMax: 90, widthStep: 0, defaultWidth: 90, yOffset: 0 },
-  { id: "tall-cabinet", name: "Colonne", group: "Meubles", band: "floor", symbol: null, color: "#2f4d6b", depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, height: 200, widthMin: 30, widthMax: 60, widthStep: 5, defaultWidth: 45, yOffset: 0 },
-  { id: "wall-cabinet", name: "Meuble haut", group: "Meubles", band: "wall", symbol: null, color: "#6a8caf", depthMin: 35, depthMax: 35, depthStep: 0, defaultDepth: 35, height: 70, widthMin: 30, widthMax: 100, widthStep: 5, defaultWidth: 60, yOffset: 140 },
-  { id: "sink", name: "Évier", group: "Électroménager", band: "floor", symbol: "sink", insetFixture: true, color: "#dfe8ee", depthMin: 50, depthMax: 60, depthStep: 5, defaultDepth: 55, height: 10, widthMin: 50, widthMax: 120, widthStep: 5, defaultWidth: 80, yOffset: 78 },
-  { id: "stove", name: "Plaque à induction", group: "Électroménager", band: "floor", symbol: "stove", insetFixture: true, color: "#20242b", depthMin: 50, depthMax: 65, depthStep: 5, defaultDepth: 55, height: 8, widthMin: 30, widthMax: 90, widthStep: 30, defaultWidth: 60, yOffset: 80 },
-  { id: "fridge", name: "Réfrigérateur", group: "Électroménager", band: "floor", symbol: "fridge", color: "#e7edf1", depthMin: 50, depthMax: 60, depthStep: 5, defaultDepth: 60, height: 190, widthMin: 60, widthMax: 90, widthStep: 5, defaultWidth: 60, yOffset: 0 },
-  { id: "dishwasher", name: "Lave-vaisselle", group: "Électroménager", band: "floor", symbol: "dishwasher", color: "#4a7fb5", depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, height: 85, widthMin: 60, widthMax: 60, widthStep: 0, defaultWidth: 60, yOffset: 0 },
-  { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 200, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80, yOffset: 0 },
-  { id: "window", name: "Fenêtre", group: "Ouvertures", band: "opening", symbol: "window", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 120, widthMin: 40, widthMax: 180, widthStep: 10, defaultWidth: 100, yOffset: 90 },
-  { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", color: "#cfe8f0", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 220, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180, yOffset: 0 },
-  { id: "double-door", name: "Porte double", group: "Ouvertures", band: "opening", symbol: "doubledoor", color: "#eef3f6", depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, height: 200, widthMin: 100, widthMax: 180, widthStep: 10, defaultWidth: 140, yOffset: 0 },
-  { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", insetFixture: true, color: "#4a90b8", depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, height: 5, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10, yOffset: 60 },
+  // --- Cuisine — Meubles ---
+  { id: "base-cabinet", name: "Meuble bas", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#3b6ea5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 30, widthMax: 120, widthStep: 5, defaultWidth: 60 },
+  { id: "drawer-unit", name: "Bloc tiroirs", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#4a7fb5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 30, widthMax: 90, widthStep: 5, defaultWidth: 45 },
+  { id: "corner-base", name: "Meuble d'angle bas", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#355d82", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 90, widthMax: 90, widthStep: 0, defaultWidth: 90 },
+  { id: "tall-cabinet", name: "Colonne", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#2f4d6b", height: 200, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 30, widthMax: 60, widthStep: 5, defaultWidth: 45 },
+  { id: "wall-cabinet", name: "Meuble haut", group: "Cuisine — Meubles", band: "wall", symbol: null, color: "#6a8caf", height: 70, yOffset: 140, depthMin: 35, depthMax: 35, depthStep: 0, defaultDepth: 35, widthMin: 30, widthMax: 100, widthStep: 5, defaultWidth: 60 },
+  // --- Cuisine — Électroménager ---
+  { id: "sink", name: "Évier", group: "Cuisine — Électroménager", band: "floor", symbol: "sink", color: "#dfe8ee", height: 10, yOffset: 78, depthMin: 50, depthMax: 60, depthStep: 5, defaultDepth: 55, widthMin: 50, widthMax: 120, widthStep: 5, defaultWidth: 80 },
+  { id: "stove", name: "Plaque à induction", group: "Cuisine — Électroménager", band: "floor", symbol: "stove", color: "#20242b", height: 8, yOffset: 80, depthMin: 50, depthMax: 65, depthStep: 5, defaultDepth: 55, widthMin: 30, widthMax: 90, widthStep: 30, defaultWidth: 60 },
+  { id: "fridge", name: "Réfrigérateur", group: "Cuisine — Électroménager", band: "floor", symbol: "fridge", color: "#e7edf1", height: 190, yOffset: 0, depthMin: 50, depthMax: 60, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 90, widthStep: 5, defaultWidth: 60 },
+  { id: "dishwasher", name: "Lave-vaisselle", group: "Cuisine — Électroménager", band: "floor", symbol: "dishwasher", color: "#4a7fb5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 60, widthMax: 60, widthStep: 0, defaultWidth: 60 },
+  // --- Réseaux ---
+  { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", color: "#4a90b8", height: 5, yOffset: 60, depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10 },
+  // --- Ouvertures ---
+  { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80 },
+  { id: "double-door", name: "Porte double", group: "Ouvertures", band: "opening", symbol: "doubledoor", color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 100, widthMax: 180, widthStep: 10, defaultWidth: 140 },
+  { id: "window", name: "Fenêtre", group: "Ouvertures", band: "opening", symbol: "window", color: "#eef3f6", height: 120, yOffset: 90, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 40, widthMax: 180, widthStep: 10, defaultWidth: 100 },
+  { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", color: "#cfe8f0", height: 220, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180 },
+  { id: "shower-screen", name: "Paroi de douche", group: "Ouvertures", band: "opening", symbol: "glasswall", color: "#cfe8f0", height: 200, yOffset: 0, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 70, widthMax: 140, widthStep: 10, defaultWidth: 90 },
+  // --- Salle de bain ---
+  { id: "bathtub", name: "Baignoire", group: "Salle de bain", band: "floor", symbol: "bathtub", color: "#dfe8ee", height: 55, yOffset: 0, depthMin: 70, depthMax: 80, depthStep: 5, defaultDepth: 70, widthMin: 150, widthMax: 180, widthStep: 10, defaultWidth: 170 },
+  { id: "shower-tray", name: "Bac de douche", group: "Salle de bain", band: "floor", symbol: "showertray", color: "#dfe8ee", height: 5, yOffset: 0, depthMin: 80, depthMax: 100, depthStep: 10, defaultDepth: 90, widthMin: 80, widthMax: 100, widthStep: 10, defaultWidth: 90 },
+  { id: "toilet", name: "WC", group: "Salle de bain", band: "floor", symbol: "toilet", color: "#eef3f6", height: 40, yOffset: 0, depthMin: 40, depthMax: 45, depthStep: 5, defaultDepth: 42, widthMin: 35, widthMax: 40, widthStep: 5, defaultWidth: 38 },
+  { id: "vanity", name: "Meuble vasque", group: "Salle de bain", band: "floor", symbol: "sink", color: "#dfe8ee", height: 85, yOffset: 0, depthMin: 45, depthMax: 55, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 120, widthStep: 10, defaultWidth: 80 },
+  // --- Séjour / Chambre ---
+  { id: "sofa", name: "Canapé", group: "Séjour / Chambre", band: "floor", symbol: "sofa", color: "#7c9473", height: 85, yOffset: 0, depthMin: 85, depthMax: 95, depthStep: 5, defaultDepth: 90, widthMin: 140, widthMax: 280, widthStep: 10, defaultWidth: 200 },
+  { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
+  { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
+  { id: "table", name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
+  { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", height: 45, yOffset: 0, depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
+  { id: "bed", name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 45, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
+  { id: "nightstand", name: "Chevet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#8a7f9e", height: 50, yOffset: 0, depthMin: 35, depthMax: 40, depthStep: 5, defaultDepth: 38, widthMin: 35, widthMax: 45, widthStep: 5, defaultWidth: 40 },
+  { id: "wardrobe", name: "Armoire", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 200, yOffset: 0, depthMin: 55, depthMax: 60, depthStep: 5, defaultDepth: 58, widthMin: 80, widthMax: 200, widthStep: 10, defaultWidth: 120 },
+  { id: "dresser", name: "Commode", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 80, widthMax: 140, widthStep: 10, defaultWidth: 100 },
+  { id: "buffet", name: "Buffet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 120, widthMax: 200, widthStep: 10, defaultWidth: 160 },
+  { id: "desk", name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
+  { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
+  { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
-const GROUPS = ["Meubles", "Électroménager", "Réseaux", "Ouvertures"];
-const BAND_LABEL = { floor: "Bas / électroménager", wall: "Haut", opening: "Ouvertures" };
-
-// Mobilier libre : positionnable n'importe où dans la pièce (x, y, angle),
-// pas rattaché à un mur. roundable = coins arrondis réglables (utile pour
-// approcher une table ronde en poussant les 4 rayons au maximum).
-const FREE_CATALOG = [
-  { id: "worktop", name: "Plan de travail", color: "#c9a26a", height: 4, yOffset: 85, defaultWidth: 200, defaultDepth: 60, roundable: true },
-  { id: "table", name: "Table", color: "#b98a52", height: 75, yOffset: 0, defaultWidth: 140, defaultDepth: 80, roundable: true },
-  { id: "chair", name: "Chaise", color: "#7c9473", height: 45, yOffset: 0, defaultWidth: 45, defaultDepth: 45, roundable: true },
-  { id: "banquette", name: "Banquette", color: "#6f8fa8", height: 45, yOffset: 0, defaultWidth: 150, defaultDepth: 50, roundable: true },
-  { id: "tv", name: "Télévision", color: "#20242b", height: 55, yOffset: 100, defaultWidth: 100, defaultDepth: 6, roundable: false },
-];
-const freeCatalogById = Object.fromEntries(FREE_CATALOG.map((c) => [c.id, c]));
+const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
 
 const DEFAULT_VERTICES = [
   { x: 280, y: -140 }, { x: 460, y: -140 }, { x: 460, y: 320 },
@@ -54,22 +64,6 @@ function timestamp() {
 }
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 
-function polygonOrientation(vertices) {
-  let s = 0;
-  for (let i = 0; i < vertices.length; i++) {
-    const a = vertices[i], b = vertices[(i + 1) % vertices.length];
-    s += a.x * b.y - b.x * a.y;
-  }
-  return s >= 0 ? 1 : -1;
-}
-function wallGeom(A, B, orient) {
-  const dx = B.x - A.x, dy = B.y - A.y;
-  const length = Math.hypot(dx, dy) || 1;
-  const dir = { x: dx / length, y: dy / length };
-  const normal = orient > 0 ? { x: -dir.y, y: dir.x } : { x: dir.y, y: -dir.x };
-  return { A, B, dir, normal, length: Math.round(length) };
-}
-
 function shoelaceAreaM2(vertices) {
   let sum = 0;
   for (let i = 0; i < vertices.length; i++) {
@@ -77,6 +71,35 @@ function shoelaceAreaM2(vertices) {
     sum += a.x * b.y - b.x * a.y;
   }
   return Math.round((Math.abs(sum) / 2 / 10000) * 100) / 100;
+}
+// Segments d'une pièce, uniquement pour l'affichage des cotes — plus aucune
+// logique de placement n'en dépend (les objets ne sont plus rattachés aux murs).
+function roomEdges(vertices) {
+  return vertices.map((A, i) => {
+    const B = vertices[(i + 1) % vertices.length];
+    const normal = { x: (B.y - A.y), y: -(B.x - A.x) };
+    const len = Math.hypot(normal.x, normal.y) || 1;
+    return { A, B, normal: { x: normal.x / len, y: normal.y / len }, length: Math.round(Math.hypot(B.x - A.x, B.y - A.y)) };
+  });
+}
+
+// --- géométrie d'un objet à partir de x, y, angle (tout est libre) ---
+function computeItemGeometry(item) {
+  const entry = catalogById[item.catalogId];
+  if (!entry) return null;
+  const rad = ((item.angleDeg || 0) * Math.PI) / 180;
+  const u = { x: Math.cos(rad), y: Math.sin(rad) };
+  const v = { x: -Math.sin(rad), y: Math.cos(rad) };
+  const width = item.width ?? entry.defaultWidth;
+  const depth = item.depth ?? entry.defaultDepth;
+  const halfW = width / 2, halfD = depth / 2;
+  const corners = [
+    { x: item.x - u.x * halfW - v.x * halfD, y: item.y - u.y * halfW - v.y * halfD },
+    { x: item.x + u.x * halfW - v.x * halfD, y: item.y + u.y * halfW - v.y * halfD },
+    { x: item.x + u.x * halfW + v.x * halfD, y: item.y + u.y * halfW + v.y * halfD },
+    { x: item.x - u.x * halfW + v.x * halfD, y: item.y - u.y * halfW + v.y * halfD },
+  ];
+  return { ...item, catalogEntry: entry, width, depth, centerX: item.x, centerY: item.y, corners, u, v, angleRad: -rad };
 }
 
 // --- chemin d'un rectangle à coins arrondis (par coin), en repère local u/v ---
@@ -138,14 +161,40 @@ function getSymbolShapes(item) {
       });
       break;
     }
+    case "water": {
+      const r = Math.min(w, d) * 0.28;
+      const c = L(0, 0);
+      shapes.push({ type: "circle", cx: c.x, cy: c.y, r });
+      const p1 = L(-w / 2, 0), p2 = L(w / 2, 0), p3 = L(0, -d / 2), p4 = L(0, d / 2);
+      shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      shapes.push({ type: "line", x1: p3.x, y1: p3.y, x2: p4.x, y2: p4.y });
+      break;
+    }
     case "door": {
       const hinge = L(-w / 2, 0), tip = L(-w / 2, w * 0.9), other = L(w / 2, 0);
       shapes.push({ type: "line", x1: hinge.x, y1: hinge.y, x2: tip.x, y2: tip.y });
       shapes.push({ type: "arc", x1: tip.x, y1: tip.y, x2: other.x, y2: other.y, r: w, rot: angleDeg });
       break;
     }
+    case "doubledoor": {
+      const half = w / 4;
+      const hingeL = L(-w / 2, 0), tipL = L(-w / 2, half * 0.9), midL = L(0, 0);
+      shapes.push({ type: "line", x1: hingeL.x, y1: hingeL.y, x2: tipL.x, y2: tipL.y });
+      shapes.push({ type: "arc", x1: tipL.x, y1: tipL.y, x2: midL.x, y2: midL.y, r: half, rot: angleDeg });
+      const hingeR = L(w / 2, 0), tipR = L(w / 2, half * 0.9), midR = L(0, 0);
+      shapes.push({ type: "line", x1: hingeR.x, y1: hingeR.y, x2: tipR.x, y2: tipR.y });
+      shapes.push({ type: "arc", x1: midR.x, y1: midR.y, x2: tipR.x, y2: tipR.y, r: half, rot: angleDeg });
+      break;
+    }
     case "window": {
       [-1.5, 1.5].forEach((ly) => {
+        const p1 = L(-w / 2, ly), p2 = L(w / 2, ly);
+        shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      });
+      break;
+    }
+    case "glasswall": {
+      [-1.2, 1.2].forEach((ly) => {
         const p1 = L(-w / 2, ly), p2 = L(w / 2, ly);
         shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
       });
@@ -162,23 +211,46 @@ function getSymbolShapes(item) {
       shapes.push({ type: "line", x1: armTip.x, y1: armTip.y, x2: arrowB.x, y2: arrowB.y });
       break;
     }
-    case "doubledoor": {
-      const half = w / 4;
-      const hingeL = L(-w / 2, 0), tipL = L(-w / 2, half * 0.9), midL = L(0, 0);
-      shapes.push({ type: "line", x1: hingeL.x, y1: hingeL.y, x2: tipL.x, y2: tipL.y });
-      shapes.push({ type: "arc", x1: tipL.x, y1: tipL.y, x2: midL.x, y2: midL.y, r: half, rot: angleDeg });
-      const hingeR = L(w / 2, 0), tipR = L(w / 2, half * 0.9), midR = L(0, 0);
-      shapes.push({ type: "line", x1: hingeR.x, y1: hingeR.y, x2: tipR.x, y2: tipR.y });
-      shapes.push({ type: "arc", x1: midR.x, y1: midR.y, x2: tipR.x, y2: tipR.y, r: half, rot: angleDeg });
+    case "bathtub": {
+      const bw = w - 10, bd = d - 10;
+      shapes.push({ type: "polygon", points: [L(-bw / 2, -bd / 2), L(bw / 2, -bd / 2), L(bw / 2, bd / 2), L(-bw / 2, bd / 2)] });
+      const drain = L(w / 2 - 14, 0);
+      shapes.push({ type: "circle", cx: drain.x, cy: drain.y, r: 4 });
       break;
     }
-    case "water": {
-      const r = Math.min(w, d) * 0.28;
-      const c = L(0, 0);
-      shapes.push({ type: "circle", cx: c.x, cy: c.y, r });
-      const p1 = L(-w / 2, 0), p2 = L(w / 2, 0), p3 = L(0, -d / 2), p4 = L(0, d / 2);
+    case "showertray": {
+      const p1 = L(-w / 2 + 6, -d / 2 + 6), p2 = L(w / 2 - 6, d / 2 - 6);
+      const p3 = L(w / 2 - 6, -d / 2 + 6), p4 = L(-w / 2 + 6, d / 2 - 6);
       shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
       shapes.push({ type: "line", x1: p3.x, y1: p3.y, x2: p4.x, y2: p4.y });
+      const c = L(0, 0);
+      shapes.push({ type: "circle", cx: c.x, cy: c.y, r: 4 });
+      break;
+    }
+    case "toilet": {
+      const tank = [L(-w / 2 + 4, -d / 2), L(w / 2 - 4, -d / 2), L(w / 2 - 4, -d / 2 + 8), L(-w / 2 + 4, -d / 2 + 8)];
+      shapes.push({ type: "polygon", points: tank });
+      const bowl = L(0, d * 0.15);
+      shapes.push({ type: "circle", cx: bowl.x, cy: bowl.y, r: Math.min(w, d) * 0.32 });
+      break;
+    }
+    case "sofa": {
+      const back1 = L(-w / 2, -d / 2), back2 = L(w / 2, -d / 2);
+      shapes.push({ type: "line", x1: back1.x, y1: back1.y, x2: back2.x, y2: back2.y });
+      [-w / 6, w / 6].forEach((lx) => {
+        const p1 = L(lx, -d / 2 + 6), p2 = L(lx, d / 2 - 4);
+        shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      });
+      break;
+    }
+    case "bed": {
+      const pillowW = w * 0.35, pillowH = Math.min(24, d * 0.25);
+      const left = [L(-w / 2 + 6, -d / 2 + 6), L(-w / 2 + 6 + pillowW, -d / 2 + 6), L(-w / 2 + 6 + pillowW, -d / 2 + 6 + pillowH), L(-w / 2 + 6, -d / 2 + 6 + pillowH)];
+      const right = [L(w / 2 - 6 - pillowW, -d / 2 + 6), L(w / 2 - 6, -d / 2 + 6), L(w / 2 - 6, -d / 2 + 6 + pillowH), L(w / 2 - 6 - pillowW, -d / 2 + 6 + pillowH)];
+      shapes.push({ type: "polygon", points: left });
+      shapes.push({ type: "polygon", points: right });
+      const fold1 = L(-w / 2, -d / 2 + pillowH + 16), fold2 = L(w / 2, -d / 2 + pillowH + 16);
+      shapes.push({ type: "line", x1: fold1.x, y1: fold1.y, x2: fold2.x, y2: fold2.y });
       break;
     }
     default: break;
@@ -234,7 +306,7 @@ function hexToRgb01(hex) {
 }
 
 // ---------------------------------------------------------------------------
-// Export 3D — GLTF minimal (boîtes positionnées/rotées, à embellir ensuite)
+// Export 3D — GLTF minimal (boîtes positionnées/rotées) de la pièce active
 // ---------------------------------------------------------------------------
 function exportGLTF(items) {
   const chunks = [];
@@ -298,116 +370,112 @@ function exportGLTF(items) {
   const blob = new Blob([JSON.stringify(gltf, null, 2)], { type: "model/gltf+json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `cuisine_${timestamp()}.gltf`;
+  a.href = url; a.download = `piece_${timestamp()}.gltf`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------
-// Export plan pro — SVG vectoriel, cotes + symboles, imprimable / éditable
+// Export plan pro — SVG vectoriel, toutes les pièces empilées, cotes + symboles
 // ---------------------------------------------------------------------------
-function exportFloorPlanSVG(vertices, walls, items, roomArea, roomHeight) {
-  const xs = vertices.map((v) => v.x), ys = vertices.map((v) => v.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const padOut = 120;
-  const w = maxX - minX + padOut * 2;
-  const h = maxY - minY + padOut * 2 + 80;
-  const ox = -minX + padOut, oy = -minY + padOut;
-  const tr = (p) => ({ x: p.x + ox, y: p.y + oy });
+function exportFloorPlanSVG(rooms, items) {
+  const perRoom = rooms.map((room) => {
+    const xs = room.vertices.map((v) => v.x), ys = room.vertices.map((v) => v.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const roomItems = items.filter((it) => it.roomId === room.id).map(computeItemGeometry).filter(Boolean);
+    return { room, minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY, items: roomItems, area: shoelaceAreaM2(room.vertices) };
+  });
+
+  const padOut = 120, gapBetweenRooms = 100, titleHeight = 60;
+  const totalWidth = Math.max(...perRoom.map((r) => r.w)) + padOut * 2;
+  const totalHeight = perRoom.reduce((s, r) => s + r.h + titleHeight + gapBetweenRooms, 0) + padOut;
 
   let body = "";
-  body += `<polygon points="${vertices.map((v) => { const p = tr(v); return `${p.x},${p.y}`; }).join(" ")}" fill="#fff" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+  let cursorY = padOut;
+  perRoom.forEach(({ room, minX, minY, w, h, items: roomItems, area }) => {
+    const ox = -minX + padOut, oy = -minY + cursorY + titleHeight;
+    const tr = (p) => ({ x: p.x + ox, y: p.y + oy });
 
-  walls.forEach((wl) => {
-    const A = tr(wl.A), B = tr(wl.B);
-    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
-    const lx = mx + wl.normal.x * 22, ly = my + wl.normal.y * 22;
-    body += `<text x="${lx}" y="${ly}" font-family="monospace" font-size="11" text-anchor="middle" fill="#111">${(wl.length / 100).toFixed(2)} m</text>`;
+    body += `<text x="${padOut}" y="${cursorY + 20}" font-family="monospace" font-size="16" font-weight="bold" fill="#111">${room.name} — ${area} m²</text>`;
+    body += `<polygon points="${room.vertices.map((v) => { const p = tr(v); return `${p.x},${p.y}`; }).join(" ")}" fill="#fff" stroke="#111" stroke-width="6" stroke-linejoin="round"/>`;
+
+    roomEdges(room.vertices).forEach((wl) => {
+      const A = tr(wl.A), B = tr(wl.B);
+      const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+      const lx = mx + wl.normal.x * 22, ly = my + wl.normal.y * 22;
+      body += `<text x="${lx}" y="${ly}" font-family="monospace" font-size="11" text-anchor="middle" fill="#111">${(wl.length / 100).toFixed(2)} m</text>`;
+    });
+
+    roomItems.forEach((item) => {
+      const isWall = item.catalogEntry.band === "wall";
+      const isOpening = item.catalogEntry.band === "opening";
+      const shifted = { ...item, centerX: item.centerX + ox, centerY: item.centerY + oy };
+      if (item.catalogEntry.roundable) {
+        const d = roundedRectPathD(shifted.centerX, shifted.centerY, item.width, item.depth, item.u, item.v, item.radii);
+        body += `<path d="${d}" fill="${item.catalogEntry.color}" fill-opacity="0.55" stroke="#111" stroke-width="1.2"/>`;
+      } else {
+        const corners = item.corners.map((c) => tr(c));
+        const fill = isOpening ? "#fff" : isWall ? "none" : item.catalogEntry.color;
+        const fillOpacity = isOpening || isWall ? 1 : 0.35;
+        body += `<polygon points="${corners.map((c) => `${c.x},${c.y}`).join(" ")}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="#111" stroke-width="${isWall ? 0.8 : 1.2}" ${isWall ? 'stroke-dasharray="4,3"' : ""}/>`;
+      }
+      getSymbolShapes(shifted).forEach((s) => { body += buildShapeElement(s); });
+      if (item.width > 25) {
+        const c = tr({ x: item.centerX, y: item.centerY });
+        body += `<text x="${c.x}" y="${c.y + 3}" font-family="monospace" font-size="8" text-anchor="middle" fill="#111">${item.catalogEntry.name}</text>`;
+      }
+    });
+
+    cursorY += h + titleHeight + gapBetweenRooms;
   });
-
-  items.forEach((item) => {
-    const isWall = item.catalogEntry.band === "wall";
-    const isOpening = item.catalogEntry.band === "opening";
-    const isFree = item.catalogEntry.band === "free";
-    const shiftedItem = { ...item, centerX: item.centerX + ox, centerY: item.centerY + oy };
-    if (isFree) {
-      const d = roundedRectPathD(shiftedItem.centerX, shiftedItem.centerY, item.width, item.depth, item.u, item.v, item.radii);
-      body += `<path d="${d}" fill="${item.catalogEntry.color}" fill-opacity="0.55" stroke="#111" stroke-width="1.2"/>`;
-    } else {
-      const corners = item.corners.map((c) => tr(c));
-      const fill = isOpening ? "#fff" : isWall ? "none" : "#f4f6f8";
-      body += `<polygon points="${corners.map((c) => `${c.x},${c.y}`).join(" ")}" fill="${fill}" stroke="#111" stroke-width="${isWall ? 0.8 : 1.2}" ${isWall ? 'stroke-dasharray="4,3"' : ""}/>`;
-    }
-    getSymbolShapes(shiftedItem).forEach((s) => { body += buildShapeElement(s); });
-    if (item.width > 25 && !isOpening) {
-      const c = tr({ x: item.centerX, y: item.centerY });
-      body += `<text x="${c.x}" y="${c.y + 3}" font-family="monospace" font-size="8" text-anchor="middle" fill="#111">${item.catalogEntry.name}</text>`;
-    }
-  });
-
-  const centroid = tr({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 });
-  body += `<text x="${centroid.x}" y="${centroid.y}" font-family="monospace" font-size="20" text-anchor="middle" fill="#111" font-weight="bold">${roomArea} m²</text>`;
 
   const now = new Date();
-  body += `<g transform="translate(${padOut},${h - 60})">
-    <line x1="0" y1="0" x2="${w - padOut * 2}" y2="0" stroke="#111" stroke-width="1"/>
-    <text x="0" y="20" font-family="monospace" font-size="13" fill="#111" font-weight="bold">Cuisine — plan d'implantation</text>
-    <text x="0" y="38" font-family="monospace" font-size="10" fill="#555">Cotes en mètres · hauteur sous plafond ${(roomHeight / 100).toFixed(2)} m · ${now.toLocaleDateString("fr-FR")} · document de travail, non contractuel</text>
-  </g>`;
+  body += `<text x="${padOut}" y="${totalHeight - 20}" font-family="monospace" font-size="10" fill="#555">Cotes en mètres · ${now.toLocaleDateString("fr-FR")} · document de travail, non contractuel</text>`;
 
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n<rect x="0" y="0" width="${w}" height="${h}" fill="#ffffff"/>\n${body}\n</svg>`;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">\n<rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff"/>\n${body}\n</svg>`;
 
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `plan_cuisine_${timestamp()}.svg`;
+  a.href = url; a.download = `plan_appartement_${timestamp()}.svg`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------
-// Liste de matériel — CSV regroupé par article identique, prêt à chiffrer
-// (colonnes prix unitaire / total laissées vides pour le devis)
+// Liste de matériel — CSV regroupé par article identique, toutes pièces confondues
 // ---------------------------------------------------------------------------
-function materialsCategory(catalogEntry) {
-  if (catalogEntry.band === "free") return "Mobilier libre";
-  if (catalogEntry.band === "opening") return "Ouverture";
-  if (catalogEntry.symbol && catalogEntry.band === "floor" && catalogEntry.name !== "Meuble bas") return "Électroménager";
-  if (catalogEntry.band === "wall") return "Meuble haut";
-  return "Meuble bas / rangement";
-}
 function csvCell(value) {
   const s = String(value ?? "");
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
-function exportMaterialsCSV(items) {
+function exportMaterialsCSV(rooms, items) {
+  const roomNameById = Object.fromEntries(rooms.map((r) => [r.id, r.name]));
   const groups = {};
-  const order = ["Meuble bas / rangement", "Meuble haut", "Électroménager", "Mobilier libre", "Ouverture"];
+  const order = GROUPS;
   items.forEach((item) => {
-    const category = materialsCategory(item.catalogEntry);
-    const isFree = category === "Mobilier libre";
-    const key = `${category}|${item.catalogEntry.name}|${item.width}|${item.depth}|${item.catalogEntry.height}`;
+    const entry = catalogById[item.catalogId];
+    if (!entry) return;
+    const width = item.width ?? entry.defaultWidth, depth = item.depth ?? entry.defaultDepth;
+    const key = `${entry.group}|${entry.name}|${width}|${depth}|${entry.height}`;
     if (!groups[key]) {
-      groups[key] = { category, name: item.catalogEntry.name, width: item.width, depth: item.depth, height: item.catalogEntry.height, qty: 0, isFree, locations: [] };
+      groups[key] = { category: entry.group, name: entry.name, width, depth, height: entry.height, qty: 0, roundable: !!entry.roundable, rooms: [] };
     }
     groups[key].qty += 1;
-    if (!isFree && item.wallIndex != null) {
-      const label = `Mur ${item.wallIndex + 1}`;
-      if (!groups[key].locations.includes(label)) groups[key].locations.push(label);
-    }
+    const roomName = roomNameById[item.roomId] || "?";
+    if (!groups[key].rooms.includes(roomName)) groups[key].rooms.push(roomName);
   });
 
-  const rows = [["Catégorie", "Désignation", "Largeur (cm)", "Profondeur (cm)", "Hauteur (cm)", "Quantité", "Surface unitaire (m²)", "Emplacement", "Prix unitaire (€)", "Prix total (€)"]];
+  const rows = [["Catégorie", "Désignation", "Largeur (cm)", "Profondeur (cm)", "Hauteur (cm)", "Quantité", "Surface unitaire (m²)", "Pièce(s)", "Prix unitaire (€)", "Prix total (€)"]];
   Object.values(groups)
     .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || a.name.localeCompare(b.name))
     .forEach((g) => {
-      const surface = g.isFree ? ((g.width * g.depth) / 10000).toFixed(2) : "";
-      const location = g.isFree ? "Libre" : g.locations.join(", ");
-      rows.push([g.category, g.name, g.width, g.depth, g.height, g.qty, surface, location, "", ""]);
+      const surface = g.roundable ? ((g.width * g.depth) / 10000).toFixed(2) : "";
+      rows.push([g.category, g.name, g.width, g.depth, g.height, g.qty, surface, g.rooms.join(", "), "", ""]);
     });
 
   const csv = rows.map((r) => r.map(csvCell).join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = `liste_materiel_${timestamp()}.csv`;
@@ -419,11 +487,11 @@ function exportMaterialsCSV(items) {
 // Export / import de projet — JSON réimportable pour partager un design
 // ---------------------------------------------------------------------------
 function exportProjectJSON(state) {
-  const data = { format: "atelier-cuisine", version: 1, savedAt: new Date().toISOString(), ...state };
+  const data = { format: "atelier-cuisine", version: 2, savedAt: new Date().toISOString(), ...state };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `cuisine_projet_${timestamp()}.json`;
+  a.href = url; a.download = `projet_${timestamp()}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -431,36 +499,124 @@ function exportProjectJSON(state) {
 // ---------------------------------------------------------------------------
 // Persistance locale (localStorage) — plusieurs projets, chargement auto
 // ---------------------------------------------------------------------------
-const LS_PROJECTS = "atelier-cuisine-projects-v1";
-const LS_ACTIVE = "atelier-cuisine-active-v1";
+const LS_PROJECTS = "atelier-cuisine-projects-v2";
+const LS_ACTIVE = "atelier-cuisine-active-v2";
+// Anciennes clés (v1 : une seule pièce, meubles rattachés aux murs) — utilisées
+// une seule fois pour récupérer les projets existants si le v2 est vide.
+const LS_PROJECTS_LEGACY = "atelier-cuisine-projects-v1";
+const LS_ACTIVE_LEGACY = "atelier-cuisine-active-v1";
 
 function makeBlankProject(name) {
+  const roomId = uid();
   return {
     id: uid(), name, savedAt: new Date().toISOString(),
-    vertices: DEFAULT_VERTICES, roomHeight: 240, placements: [], freeItems: [], wallFlips: {},
+    rooms: [{ id: roomId, name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240 }],
+    items: [],
   };
 }
-// Garantit une forme de projet toujours valide, y compris pour d'anciens
-// projets enregistrés avant qu'un champ existe (ex : "worktops" -> "freeItems").
+
+// --- migration de l'ancien format (v1 : une seule pièce, meubles rattachés
+// aux murs) vers le nouveau (v2 : plusieurs pièces, tout en coordonnées libres) ---
+function legacyWallGeom(A, B, orient) {
+  const dx = B.x - A.x, dy = B.y - A.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const dir = { x: dx / length, y: dy / length };
+  const normal = orient > 0 ? { x: -dir.y, y: dir.x } : { x: dir.y, y: -dir.x };
+  return { A, B, dir, normal };
+}
+function legacyOrientation(vertices) {
+  let s = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i], b = vertices[(i + 1) % vertices.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return s >= 0 ? 1 : -1;
+}
+function migrateLegacyProject(p) {
+  const vertices = Array.isArray(p.vertices) && p.vertices.length >= 3 ? p.vertices : DEFAULT_VERTICES;
+  const roomId = uid();
+  const room = { id: roomId, name: "Cuisine", vertices, height: typeof p.roomHeight === "number" ? p.roomHeight : 240 };
+  const items = [];
+  const orient = legacyOrientation(vertices);
+  const walls = vertices.map((A, i) => legacyWallGeom(A, vertices[(i + 1) % vertices.length], orient));
+  (Array.isArray(p.placements) ? p.placements : []).forEach((pl) => {
+    const wall = walls[Math.min(pl.wallIndex || 0, walls.length - 1)];
+    const entry = catalogById[pl.catalogId];
+    if (!wall || !entry) return;
+    const depth = pl.depth ?? entry.defaultDepth;
+    const width = pl.width ?? entry.defaultWidth;
+    const flip = p.wallFlips && p.wallFlips[pl.wallIndex] ? -1 : 1;
+    const centerAlong = (pl.offset || 0) + width / 2;
+    const baseX = wall.A.x + wall.dir.x * centerAlong;
+    const baseY = wall.A.y + wall.dir.y * centerAlong;
+    const pushDist = depth / 2 + (pl.standoff || 0);
+    const x = baseX + wall.normal.x * flip * pushDist;
+    const y = baseY + wall.normal.y * flip * pushDist;
+    const angleDeg = (Math.atan2(wall.dir.y, wall.dir.x) * 180) / Math.PI;
+    items.push({ uid: pl.uid || uid(), catalogId: pl.catalogId, roomId, x, y, width, depth, angleDeg, radii: [0, 0, 0, 0] });
+  });
+  (Array.isArray(p.freeItems) ? p.freeItems : Array.isArray(p.worktops) ? p.worktops : []).forEach((fi) => {
+    const catalogId = fi.typeId || "worktop"; // "worktop" existait déjà comme id de catalogue
+    if (!catalogById[catalogId]) return;
+    items.push({ uid: fi.uid || uid(), catalogId, roomId, x: fi.x || 0, y: fi.y || 0, width: fi.width, depth: fi.depth, angleDeg: fi.angleDeg || 0, radii: fi.radii || [0, 0, 0, 0] });
+  });
+  return { id: p.id || uid(), name: p.name || "Cuisine", savedAt: p.savedAt || new Date().toISOString(), rooms: [room], items };
+}
+// Garantit une forme de projet toujours valide, migrant l'ancien format au passage.
 function normalizeProject(p) {
   if (!p || typeof p !== "object") return makeBlankProject("Cuisine");
-  return {
-    id: p.id || uid(),
-    name: p.name || "Cuisine",
-    savedAt: p.savedAt || new Date().toISOString(),
-    vertices: Array.isArray(p.vertices) && p.vertices.length >= 3 ? p.vertices : DEFAULT_VERTICES,
-    roomHeight: typeof p.roomHeight === "number" ? p.roomHeight : 240,
-    placements: Array.isArray(p.placements) ? p.placements : [],
-    freeItems: Array.isArray(p.freeItems) ? p.freeItems : (Array.isArray(p.worktops) ? p.worktops : []),
-    wallFlips: p.wallFlips && typeof p.wallFlips === "object" ? p.wallFlips : {},
-  };
+  if (Array.isArray(p.rooms) && Array.isArray(p.items)) {
+    const rooms = p.rooms.map((r) => ({
+      id: r.id || uid(),
+      name: r.name || "Pièce",
+      vertices: Array.isArray(r.vertices) && r.vertices.length >= 3 ? r.vertices : DEFAULT_VERTICES,
+      height: typeof r.height === "number" ? r.height : 240,
+    }));
+    const finalRooms = rooms.length ? rooms : [{ id: uid(), name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240 }];
+    const roomIds = new Set(finalRooms.map((r) => r.id));
+    const fallbackRoomId = finalRooms[0].id;
+    const items = p.items
+      .filter((it) => catalogById[it.catalogId])
+      .map((it) => ({
+        uid: it.uid || uid(),
+        catalogId: it.catalogId,
+        roomId: roomIds.has(it.roomId) ? it.roomId : fallbackRoomId,
+        x: typeof it.x === "number" ? it.x : 0,
+        y: typeof it.y === "number" ? it.y : 0,
+        width: typeof it.width === "number" ? it.width : catalogById[it.catalogId].defaultWidth,
+        depth: typeof it.depth === "number" ? it.depth : catalogById[it.catalogId].defaultDepth,
+        angleDeg: typeof it.angleDeg === "number" ? it.angleDeg : 0,
+        radii: Array.isArray(it.radii) ? it.radii : [0, 0, 0, 0],
+      }));
+    return { id: p.id || uid(), name: p.name || "Projet", savedAt: p.savedAt || new Date().toISOString(), rooms: finalRooms, items };
+  }
+  return migrateLegacyProject(p);
 }
 function loadStore() {
   try {
     const raw = localStorage.getItem(LS_PROJECTS);
-    const projects = raw ? JSON.parse(raw) : {};
-    const activeId = localStorage.getItem(LS_ACTIVE);
-    return { projects, activeId };
+    if (raw) {
+      const projects = JSON.parse(raw);
+      const activeId = localStorage.getItem(LS_ACTIVE);
+      return { projects, activeId };
+    }
+    // Rien sous la clé v2 : on récupère une éventuelle sauvegarde v1 (ancien
+    // format, une seule pièce) et on la migre une fois pour toutes.
+    const legacyRaw = localStorage.getItem(LS_PROJECTS_LEGACY);
+    if (legacyRaw) {
+      const legacyProjects = JSON.parse(legacyRaw);
+      const projects = {};
+      Object.keys(legacyProjects || {}).forEach((id) => {
+        const migrated = normalizeProject(legacyProjects[id]);
+        projects[migrated.id] = migrated;
+      });
+      const legacyActiveId = localStorage.getItem(LS_ACTIVE_LEGACY);
+      const activeId = projects[legacyActiveId] ? legacyActiveId : Object.keys(projects)[0] || null;
+      persistProjects(projects);
+      if (activeId) persistActive(activeId);
+      return { projects, activeId };
+    }
+    return { projects: {}, activeId: null };
   } catch {
     return { projects: {}, activeId: null };
   }
@@ -478,8 +634,7 @@ function persistActive(id) {
 export default function KitchenDesigner() {
   const [initData] = useState(() => {
     const { projects, activeId } = loadStore();
-    let rawList = projects && typeof projects === "object" ? projects : {};
-    // normalise (et migre) chaque projet stocké, une fois pour toutes
+    const rawList = projects && typeof projects === "object" ? projects : {};
     let list = Object.fromEntries(Object.entries(rawList).map(([id, p]) => [id, { ...normalizeProject(p), id }]));
     let active = activeId && list[activeId] ? list[activeId] : null;
     if (!active) {
@@ -487,7 +642,7 @@ export default function KitchenDesigner() {
       if (ids.length > 0) {
         active = list[ids[0]];
       } else {
-        active = makeBlankProject("Cuisine 1");
+        active = makeBlankProject("Appartement");
         list = { ...list, [active.id]: active };
       }
     }
@@ -498,131 +653,50 @@ export default function KitchenDesigner() {
 
   const [projects, setProjects] = useState(initData.projects);
   const [activeProjectId, setActiveProjectId] = useState(initData.project.id);
-  const [vertices, setVertices] = useState(initData.project.vertices);
-  const [roomHeight, setRoomHeight] = useState(initData.project.roomHeight);
-  const [placements, setPlacements] = useState(initData.project.placements);
-  const [freeItems, setFreeItems] = useState(initData.project.freeItems);
-  const [wallFlips, setWallFlips] = useState(initData.project.wallFlips);
+  const [rooms, setRooms] = useState(initData.project.rooms);
+  const [items, setItems] = useState(initData.project.items);
+  const [activeRoomId, setActiveRoomId] = useState(initData.project.rooms[0].id);
   const [selectedUid, setSelectedUid] = useState(null);
-  const [selectedFreeUid, setSelectedFreeUid] = useState(null);
-  const [activeWallIndex, setActiveWallIndex] = useState(0);
   const [tab, setTab] = useState("room");
-  const [rightTab, setRightTab] = useState("layout");
+  const [show3D, setShow3D] = useState(false);
   const [importError, setImportError] = useState("");
 
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const three = useRef(null);
   const dragRef = useRef(null);
-  const moduleDragRef = useRef(null);
-  const freeItemDragRef = useRef(null);
+  const itemDragRef = useRef(null);
   const fileInputRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
-  const walls = useMemo(() => {
-    const orient = polygonOrientation(vertices);
-    return vertices.map((A, i) => ({ index: i, ...wallGeom(A, vertices[(i + 1) % vertices.length], orient) }));
-  }, [vertices]);
-  const roomArea = useMemo(() => shoelaceAreaM2(vertices), [vertices]);
+  const activeRoom = useMemo(() => rooms.find((r) => r.id === activeRoomId) || rooms[0], [rooms, activeRoomId]);
+  const roomArea = useMemo(() => (activeRoom ? shoelaceAreaM2(activeRoom.vertices) : 0), [activeRoom]);
+  const edges = useMemo(() => (activeRoom ? roomEdges(activeRoom.vertices) : []), [activeRoom]);
 
-  const bandTotals = useMemo(() => {
-    const t = {};
-    placements.forEach((p) => {
-      const entry = catalogById[p.catalogId];
-      if (entry.insetFixture) return;
-      const key = `${p.wallIndex}|${entry.band}`;
-      t[key] = (t[key] || 0) + p.width;
-    });
-    return t;
-  }, [placements]);
-
-  const layout = useMemo(() => {
-    return placements.map((p) => {
-      const wallIndex = Math.min(p.wallIndex, walls.length - 1);
-      const wall = walls[wallIndex];
-      const entry = catalogById[p.catalogId];
-      const flip = wallFlips[wallIndex] ? -1 : 1;
-      const depth = p.depth ?? entry.defaultDepth;
-      const centerAlong = p.offset + p.width / 2;
-      const baseX = wall.A.x + wall.dir.x * centerAlong;
-      const baseY = wall.A.y + wall.dir.y * centerAlong;
-      const standoff = p.standoff || 0;
-      const pushDist = depth / 2 + standoff;
-      const centerX = baseX + wall.normal.x * flip * pushDist;
-      const centerY = baseY + wall.normal.y * flip * pushDist;
-      const halfW = p.width / 2, halfD = depth / 2;
-      const u = wall.dir, v = { x: wall.normal.x * flip, y: wall.normal.y * flip };
-      const corners = [
-        { x: centerX - u.x * halfW - v.x * halfD, y: centerY - u.y * halfW - v.y * halfD },
-        { x: centerX + u.x * halfW - v.x * halfD, y: centerY + u.y * halfW - v.y * halfD },
-        { x: centerX + u.x * halfW + v.x * halfD, y: centerY + u.y * halfW + v.y * halfD },
-        { x: centerX - u.x * halfW + v.x * halfD, y: centerY - u.y * halfW + v.y * halfD },
-      ];
-      const angleRad = -Math.atan2(wall.dir.y, wall.dir.x);
-      return { ...p, standoff, depth, wallIndex, catalogEntry: entry, wall, centerX, centerY, corners, angleRad, u, v };
-    });
-  }, [placements, walls, wallFlips]);
-
-  const freeItemsComputed = useMemo(() => freeItems.map((w) => {
-    const rad = (w.angleDeg * Math.PI) / 180;
-    const u = { x: Math.cos(rad), y: Math.sin(rad) };
-    const v = { x: -Math.sin(rad), y: Math.cos(rad) };
-    const halfW = w.width / 2, halfD = w.depth / 2;
-    const corners = [
-      { x: w.x - u.x * halfW - v.x * halfD, y: w.y - u.y * halfW - v.y * halfD },
-      { x: w.x + u.x * halfW - v.x * halfD, y: w.y + u.y * halfW - v.y * halfD },
-      { x: w.x + u.x * halfW + v.x * halfD, y: w.y + u.y * halfW + v.y * halfD },
-      { x: w.x - u.x * halfW + v.x * halfD, y: w.y - u.y * halfW + v.y * halfD },
-    ];
-    return { ...w, u, v, corners, angleRad: -rad };
-  }), [freeItems]);
-
-  const freeAsSolids = useMemo(() => freeItemsComputed.map((w) => {
-    const entry = freeCatalogById[w.typeId] || FREE_CATALOG[0];
-    return {
-      uid: w.uid, width: w.width, depth: w.depth, radii: w.radii || [0, 0, 0, 0],
-      catalogEntry: { name: entry.name, color: entry.color, depth: w.depth, height: entry.height, yOffset: entry.yOffset, band: "free", symbol: null },
-      centerX: w.x, centerY: w.y, corners: w.corners, angleRad: w.angleRad, u: w.u, v: w.v,
-    };
-  }), [freeItemsComputed]);
-
-  const allSolids = useMemo(() => [...layout, ...freeAsSolids], [layout, freeAsSolids]);
-
-  const overlapFlags = useMemo(() => {
-    const flags = {};
-    const byGroup = {};
-    layout.filter((item) => !item.catalogEntry.insetFixture).forEach((item) => {
-      const key = `${item.wallIndex}|${item.catalogEntry.band}`;
-      (byGroup[key] = byGroup[key] || []).push(item);
-    });
-    Object.values(byGroup).forEach((group) => {
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          const a = group[i], b = group[j];
-          const alongOverlap = a.offset < b.offset + b.width && b.offset < a.offset + a.width;
-          const depthOverlap = a.standoff < b.standoff + b.depth && b.standoff < a.standoff + a.depth;
-          if (alongOverlap && depthOverlap) { flags[a.uid] = true; flags[b.uid] = true; }
-        }
-      }
-    });
-    return flags;
-  }, [layout]);
+  const roomItems = useMemo(() => items.filter((it) => it.roomId === activeRoomId), [items, activeRoomId]);
+  const roomItemsComputed = useMemo(() => roomItems.map(computeItemGeometry).filter(Boolean), [roomItems]);
 
   const bounds = useMemo(() => {
-    const xs = vertices.map((v) => v.x), ys = vertices.map((v) => v.y);
+    if (!activeRoom) return { minX: 0, minY: 0, w: 400, h: 400 };
+    const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     const p = 45;
     return { minX: minX - p, minY: minY - p, w: maxX - minX + 2 * p, h: maxY - minY + 2 * p };
-  }, [vertices]);
-  const centroid = useMemo(() => ({
-    x: vertices.reduce((s, v) => s + v.x, 0) / vertices.length,
-    y: vertices.reduce((s, v) => s + v.y, 0) / vertices.length,
-  }), [vertices]);
-  const polyPoints = vertices.map((v) => `${v.x},${v.y}`).join(" ");
+  }, [activeRoom]);
+  const centroid = useMemo(() => {
+    if (!activeRoom) return { x: 0, y: 0 };
+    return {
+      x: activeRoom.vertices.reduce((s, v) => s + v.x, 0) / activeRoom.vertices.length,
+      y: activeRoom.vertices.reduce((s, v) => s + v.y, 0) / activeRoom.vertices.length,
+    };
+  }, [activeRoom]);
+  const polyPoints = activeRoom ? activeRoom.vertices.map((v) => `${v.x},${v.y}`).join(" ") : "";
 
-  // --- init three.js (une seule fois) ---
+  // --- vue 3D : montée/démontée uniquement quand affichée ---
   useEffect(() => {
+    if (!show3D) return;
     const container = containerRef.current;
+    if (!container) return;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xeef1f4);
     const camera = new THREE.PerspectiveCamera(45, (container.clientWidth || 4) / (container.clientHeight || 3), 0.05, 100);
@@ -657,9 +731,8 @@ export default function KitchenDesigner() {
     }
     function onDown(e) {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pointers.size === 1) {
-        drag.active = true; drag.x = e.clientX; drag.y = e.clientY;
-      } else if (pointers.size === 2) {
+      if (pointers.size === 1) { drag.active = true; drag.x = e.clientX; drag.y = e.clientY; }
+      else if (pointers.size === 2) {
         drag.active = false;
         const [p1, p2] = [...pointers.values()];
         pinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
@@ -670,9 +743,7 @@ export default function KitchenDesigner() {
       if (pointers.size === 2) {
         const [p1, p2] = [...pointers.values()];
         const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-        if (pinchDist != null && dist > 0) {
-          spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (pinchDist / dist)));
-        }
+        if (pinchDist != null && dist > 0) spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (pinchDist / dist)));
         pinchDist = dist;
         updateCamera();
         return;
@@ -690,9 +761,7 @@ export default function KitchenDesigner() {
       if (pointers.size === 1) {
         const [remaining] = [...pointers.values()];
         drag.active = true; drag.x = remaining.x; drag.y = remaining.y;
-      } else {
-        drag.active = false;
-      }
+      } else drag.active = false;
     }
     function onWheel(e) { e.preventDefault(); spherical.radius = Math.min(25, Math.max(1.5, spherical.radius * (1 + e.deltaY * 0.001))); updateCamera(); }
     function applySize(w, h) {
@@ -705,8 +774,7 @@ export default function KitchenDesigner() {
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      const box = entry.contentRect;
-      applySize(box.width, box.height);
+      applySize(entry.contentRect.width, entry.contentRect.height);
     });
     resizeObserver.observe(container);
 
@@ -728,25 +796,26 @@ export default function KitchenDesigner() {
       window.removeEventListener("pointercancel", onUp);
       resizeObserver.disconnect();
       renderer.dispose();
-      container.removeChild(renderer.domElement);
+      if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+      three.current = null;
     };
-  }, []);
+  }, [show3D]);
 
-  // --- reconstruire la pièce (sol + murs) quand le polygone change ---
+  // --- reconstruire la pièce (sol + murs) affichée en 3D ---
   useEffect(() => {
     const t = three.current;
-    if (!t) return;
+    if (!t || !activeRoom) return;
     t.roomGroup.clear();
-    const hM = roomHeight / 100;
-    const shapePts = vertices.map((v) => new THREE.Vector2(v.x / 100, -(v.y / 100)));
+    const hM = activeRoom.height / 100;
+    const shapePts = activeRoom.vertices.map((v) => new THREE.Vector2(v.x / 100, -(v.y / 100)));
     const shape = new THREE.Shape(shapePts);
     const floorGeo = new THREE.ShapeGeometry(shape);
     floorGeo.rotateX(-Math.PI / 2);
     t.roomGroup.add(new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide })));
 
     const wallMat = new THREE.LineBasicMaterial({ color: 0x1f6f93, transparent: true, opacity: 0.7 });
-    vertices.forEach((A, i) => {
-      const B = vertices[(i + 1) % vertices.length];
+    activeRoom.vertices.forEach((A, i) => {
+      const B = activeRoom.vertices[(i + 1) % activeRoom.vertices.length];
       const pts = [
         new THREE.Vector3(A.x / 100, 0, A.y / 100), new THREE.Vector3(B.x / 100, 0, B.y / 100),
         new THREE.Vector3(B.x / 100, hM, B.y / 100), new THREE.Vector3(A.x / 100, hM, A.y / 100),
@@ -755,20 +824,20 @@ export default function KitchenDesigner() {
       t.roomGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wallMat));
     });
 
-    const xs = vertices.map((v) => v.x), ys = vertices.map((v) => v.y);
+    const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     t.target.set((minX + maxX) / 2 / 100, hM / 3, (minY + maxY) / 2 / 100);
     t.spherical.radius = Math.max(maxX - minX, maxY - minY, 100) / 100 * 1.6 + 1;
     t.updateCamera();
-  }, [vertices, roomHeight]);
+  }, [activeRoom, show3D]);
 
-  // --- reconstruire les solides (meubles + plans de travail) ---
+  // --- reconstruire les objets 3D de la pièce active ---
   useEffect(() => {
     const t = three.current;
     if (!t) return;
     t.group.children.forEach((c) => { c.geometry?.dispose(); c.material?.dispose(); });
     t.group.clear();
-    allSolids.forEach((item) => {
+    roomItemsComputed.forEach((item) => {
       const wM = item.width / 100, hM = item.catalogEntry.height / 100, dM = item.depth / 100;
       const geo = new THREE.BoxGeometry(wM, hM, dM);
       const mat = new THREE.MeshStandardMaterial({ color: item.catalogEntry.color, roughness: 0.8, metalness: 0.05 });
@@ -778,9 +847,9 @@ export default function KitchenDesigner() {
       t.group.add(mesh);
     });
     t.updateCamera();
-  }, [allSolids]);
+  }, [roomItemsComputed, show3D]);
 
-  // --- édition du polygone ---
+  // --- édition du polygone de la pièce active ---
   function clientToSvgPoint(e) {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -802,126 +871,116 @@ export default function KitchenDesigner() {
     const p = clientToSvgPoint(e);
     if (!p) return;
     const snapped = { x: Math.round(p.x / 5) * 5, y: Math.round(p.y / 5) * 5 };
-    setVertices((vs) => vs.map((v, idx) => (idx === dragRef.current ? snapped : v)));
+    setRooms((rs) => rs.map((r) => (r.id !== activeRoomId ? r : { ...r, vertices: r.vertices.map((v, idx) => (idx === dragRef.current ? snapped : v)) })));
   }
   function onVertexUp() {
     dragRef.current = null;
     window.removeEventListener("pointermove", onVertexMove);
     window.removeEventListener("pointerup", onVertexUp);
   }
-  function addVertex() { setVertices((vs) => [...vs, { x: vs[vs.length - 1].x + 40, y: vs[vs.length - 1].y }]); }
-  function removeVertex(i) { setVertices((vs) => (vs.length > 3 ? vs.filter((_, idx) => idx !== i) : vs)); }
-  function updateVertex(i, axis, val) { setVertices((vs) => vs.map((v, idx) => (idx === i ? { ...v, [axis]: val } : v))); }
-
-  // --- glisser un module le long de son mur ---
-  function onModuleDown(item, e) {
-    e.stopPropagation(); e.preventDefault();
-    setSelectedUid(item.uid);
-    moduleDragRef.current = { uid: item.uid, wall: item.wall, width: item.width };
-    window.addEventListener("pointermove", onModuleMove);
-    window.addEventListener("pointerup", onModuleUp);
+  function addVertex() {
+    setRooms((rs) => rs.map((r) => (r.id !== activeRoomId ? r : { ...r, vertices: [...r.vertices, { x: r.vertices[r.vertices.length - 1].x + 40, y: r.vertices[r.vertices.length - 1].y }] })));
   }
-  function onModuleMove(e) {
-    const d = moduleDragRef.current;
-    if (!d) return;
-    const p = clientToSvgPoint(e);
-    if (!p) return;
-    const proj = (p.x - d.wall.A.x) * d.wall.dir.x + (p.y - d.wall.A.y) * d.wall.dir.y;
-    const newOffset = Math.max(0, Math.round(proj - d.width / 2));
-    setPlacements((ps) => ps.map((pl) => (pl.uid === d.uid ? { ...pl, offset: newOffset } : pl)));
+  function removeVertex(i) {
+    setRooms((rs) => rs.map((r) => (r.id !== activeRoomId || r.vertices.length <= 3 ? r : { ...r, vertices: r.vertices.filter((_, idx) => idx !== i) })));
   }
-  function onModuleUp() {
-    moduleDragRef.current = null;
-    window.removeEventListener("pointermove", onModuleMove);
-    window.removeEventListener("pointerup", onModuleUp);
+  function updateVertex(i, axis, val) {
+    setRooms((rs) => rs.map((r) => (r.id !== activeRoomId ? r : { ...r, vertices: r.vertices.map((v, idx) => (idx === i ? { ...v, [axis]: val } : v)) })));
+  }
+  function updateRoomHeight(val) {
+    setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, height: val } : r)));
   }
 
-  // --- glisser un plan de travail librement ---
-  function onFreeItemDown(item, e) {
-    e.stopPropagation(); e.preventDefault();
-    setSelectedFreeUid(item.uid);
-    const p = clientToSvgPoint(e);
-    freeItemDragRef.current = { uid: item.uid, startX: item.x, startY: item.y, pointerStart: p };
-    window.addEventListener("pointermove", onFreeItemMove);
-    window.addEventListener("pointerup", onFreeItemUp);
+  // --- gestion des pièces ---
+  function addRoom() {
+    const name = window.prompt("Nom de la nouvelle pièce", `Pièce ${rooms.length + 1}`) || `Pièce ${rooms.length + 1}`;
+    const r = { id: uid(), name, vertices: DEFAULT_VERTICES, height: 240 };
+    setRooms((rs) => [...rs, r]);
+    setActiveRoomId(r.id);
   }
-  function onFreeItemMove(e) {
-    const d = freeItemDragRef.current;
-    if (!d) return;
-    const p = clientToSvgPoint(e);
-    if (!p) return;
-    const dx = p.x - d.pointerStart.x, dy = p.y - d.pointerStart.y;
-    updateFreeItem(d.uid, { x: Math.round((d.startX + dx) / 5) * 5, y: Math.round((d.startY + dy) / 5) * 5 });
+  function renameRoom() {
+    if (!activeRoom) return;
+    const name = window.prompt("Renommer la pièce", activeRoom.name);
+    if (!name) return;
+    setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, name } : r)));
   }
-  function onFreeItemUp() {
-    freeItemDragRef.current = null;
-    window.removeEventListener("pointermove", onFreeItemMove);
-    window.removeEventListener("pointerup", onFreeItemUp);
+  function deleteRoom() {
+    if (rooms.length <= 1) return;
+    if (!window.confirm(`Supprimer "${activeRoom.name}" et tous ses objets ? Cette action est irréversible.`)) return;
+    const remaining = rooms.filter((r) => r.id !== activeRoomId);
+    setRooms(remaining);
+    setItems((its) => its.filter((it) => it.roomId !== activeRoomId));
+    setActiveRoomId(remaining[0].id);
   }
 
-  // --- actions modules ---
-  function addModule(catalogId) {
+  // --- gestion des objets (tout est libre : x, y, angle) ---
+  function addItem(catalogId) {
     const entry = catalogById[catalogId];
+    if (!entry || !activeRoom) return;
     const id = uid();
-    let defaultOffset = 0;
-    if (!entry.insetFixture) {
-      const sameGroup = placements.filter((p) => p.wallIndex === activeWallIndex && catalogById[p.catalogId].band === entry.band);
-      defaultOffset = sameGroup.length ? Math.max(...sameGroup.map((p) => p.offset + p.width)) : 0;
-    }
-    setPlacements((p) => [...p, { uid: id, catalogId, width: entry.defaultWidth, depth: entry.defaultDepth, wallIndex: activeWallIndex, offset: defaultOffset, standoff: 0 }]);
+    setItems((its) => [...its, { uid: id, catalogId, roomId: activeRoomId, x: centroid.x, y: centroid.y, width: entry.defaultWidth, depth: entry.defaultDepth, angleDeg: 0, radii: [0, 0, 0, 0] }]);
     setSelectedUid(id);
-    setRightTab("layout");
   }
-  function updateWidth(id, w) {
-    setPlacements((p) => p.map((it) => {
+  function updateItem(id, patch) { setItems((its) => its.map((it) => (it.uid === id ? { ...it, ...patch } : it))); }
+  function updateItemWidth(id, w) {
+    setItems((its) => its.map((it) => {
       if (it.uid !== id) return it;
       const e = catalogById[it.catalogId];
       return { ...it, width: Math.min(e.widthMax, Math.max(e.widthMin, w)) };
     }));
   }
-  function updateDepth(id, d) {
-    setPlacements((p) => p.map((it) => {
+  function updateItemDepth(id, d) {
+    setItems((its) => its.map((it) => {
       if (it.uid !== id) return it;
       const e = catalogById[it.catalogId];
       return { ...it, depth: Math.min(e.depthMax, Math.max(e.depthMin, d)) };
     }));
   }
-  function updateOffset(id, val) { setPlacements((ps) => ps.map((p) => (p.uid === id ? { ...p, offset: Math.max(0, Math.round(val)) } : p))); }
-  function updateStandoff(id, val) { setPlacements((ps) => ps.map((p) => (p.uid === id ? { ...p, standoff: Math.max(0, Math.round(val)) } : p))); }
-  function removeModule(id) { setPlacements((p) => p.filter((it) => it.uid !== id)); if (selectedUid === id) setSelectedUid(null); }
-  function reassignWall(id, newWallIndex) { setPlacements((ps) => ps.map((p) => (p.uid === id ? { ...p, wallIndex: newWallIndex, offset: 0, standoff: 0 } : p))); }
-
-  // --- actions mobilier libre (table, chaises, banquette, TV, plan de travail) ---
-  function addFreeItem(typeId) {
-    const entry = freeCatalogById[typeId];
-    if (!entry) return;
-    const id = uid();
-    setFreeItems((ws) => [...ws, { uid: id, typeId, x: centroid.x, y: centroid.y, width: entry.defaultWidth, depth: entry.defaultDepth, angleDeg: 0, radii: [0, 0, 0, 0] }]);
-    setSelectedFreeUid(id);
-    setRightTab("free");
-  }
-  function duplicateFreeItem(id) {
-    setFreeItems((ws) => {
-      const src = ws.find((w) => w.uid === id);
-      if (!src) return ws;
-      const copy = { ...src, uid: uid(), x: src.x + 30, y: src.y + 30 };
-      return [...ws, copy];
-    });
-  }
-  function updateFreeItem(id, patch) { setFreeItems((ws) => ws.map((w) => (w.uid === id ? { ...w, ...patch } : w))); }
-  function updateFreeItemRadius(id, idx, val) {
-    setFreeItems((ws) => ws.map((w) => {
-      if (w.uid !== id) return w;
-      const radii = [...(w.radii || [0, 0, 0, 0])];
+  function updateItemRadius(id, idx, val) {
+    setItems((its) => its.map((it) => {
+      if (it.uid !== id) return it;
+      const radii = [...(it.radii || [0, 0, 0, 0])];
       radii[idx] = Math.max(0, Number(val) || 0);
-      return { ...w, radii };
+      return { ...it, radii };
     }));
   }
-  function removeFreeItem(id) { setFreeItems((ws) => ws.filter((w) => w.uid !== id)); if (selectedFreeUid === id) setSelectedFreeUid(null); }
+  function duplicateItem(id) {
+    setItems((its) => {
+      const src = its.find((it) => it.uid === id);
+      if (!src) return its;
+      return [...its, { ...src, uid: uid(), x: src.x + 30, y: src.y + 30 }];
+    });
+  }
+  function removeItem(id) { setItems((its) => its.filter((it) => it.uid !== id)); if (selectedUid === id) setSelectedUid(null); }
+  function reassignRoom(id, newRoomId) { setItems((its) => its.map((it) => (it.uid === id ? { ...it, roomId: newRoomId } : it))); }
+
+  // --- glisser un objet librement (x et y) ---
+  function onItemDown(item, e) {
+    e.stopPropagation(); e.preventDefault();
+    setSelectedUid(item.uid);
+    const p = clientToSvgPoint(e);
+    itemDragRef.current = { uid: item.uid, startX: item.x, startY: item.y, pointerStart: p };
+    window.addEventListener("pointermove", onItemMove);
+    window.addEventListener("pointerup", onItemUp);
+  }
+  function onItemMove(e) {
+    const d = itemDragRef.current;
+    if (!d) return;
+    const p = clientToSvgPoint(e);
+    if (!p) return;
+    const dx = p.x - d.pointerStart.x, dy = p.y - d.pointerStart.y;
+    updateItem(d.uid, { x: Math.round((d.startX + dx) / 5) * 5, y: Math.round((d.startY + dy) / 5) * 5 });
+  }
+  function onItemUp() {
+    itemDragRef.current = null;
+    window.removeEventListener("pointermove", onItemMove);
+    window.removeEventListener("pointerup", onItemUp);
+  }
 
   function resetAll() {
-    setVertices(DEFAULT_VERTICES); setRoomHeight(240); setPlacements([]); setFreeItems([]);
-    setWallFlips({}); setActiveWallIndex(0); setSelectedUid(null); setSelectedFreeUid(null);
+    const blank = makeBlankProject(projects[activeProjectId]?.name || "Appartement");
+    setRooms(blank.rooms); setItems(blank.items);
+    setActiveRoomId(blank.rooms[0].id); setSelectedUid(null);
   }
 
   // --- sauvegarde automatique locale (anti-rebond) du projet actif ---
@@ -931,20 +990,19 @@ export default function KitchenDesigner() {
       setProjects((prev) => {
         const existing = prev[activeProjectId];
         if (!existing) return prev;
-        const updated = { ...prev, [activeProjectId]: { ...existing, vertices, roomHeight, placements, freeItems, wallFlips, savedAt: new Date().toISOString() } };
+        const updated = { ...prev, [activeProjectId]: { ...existing, rooms, items, savedAt: new Date().toISOString() } };
         persistProjects(updated);
         return updated;
       });
     }, 500);
     return () => clearTimeout(saveTimeoutRef.current);
-  }, [vertices, roomHeight, placements, freeItems, wallFlips, activeProjectId]);
+  }, [rooms, items, activeProjectId]);
 
   // --- gestion multi-projets ---
   function loadProjectState(raw) {
     const p = normalizeProject(raw);
-    setVertices(p.vertices); setRoomHeight(p.roomHeight); setPlacements(p.placements);
-    setFreeItems(p.freeItems); setWallFlips(p.wallFlips);
-    setActiveWallIndex(0); setSelectedUid(null); setSelectedFreeUid(null);
+    setRooms(p.rooms); setItems(p.items);
+    setActiveRoomId(p.rooms[0].id); setSelectedUid(null);
   }
   function switchProject(id) {
     const p = projects[id];
@@ -954,8 +1012,8 @@ export default function KitchenDesigner() {
     persistActive(id);
   }
   function createNewProject() {
-    const suggested = `Cuisine ${Object.keys(projects).length + 1}`;
-    const name = (typeof window !== "undefined" ? window.prompt("Nom du nouveau projet", suggested) : suggested) || suggested;
+    const suggested = `Appartement ${Object.keys(projects).length + 1}`;
+    const name = window.prompt("Nom du nouveau projet", suggested) || suggested;
     const p = makeBlankProject(name);
     const updated = { ...projects, [p.id]: p };
     setProjects(updated);
@@ -990,7 +1048,7 @@ export default function KitchenDesigner() {
 
   // --- export / import du projet complet ---
   function handleExportProject() {
-    exportProjectJSON({ name: projects[activeProjectId]?.name, vertices, roomHeight, placements, freeItems, wallFlips });
+    exportProjectJSON({ name: projects[activeProjectId]?.name, rooms, items });
   }
   function triggerImport() { setImportError(""); fileInputRef.current?.click(); }
   function handleImportFile(e) {
@@ -1000,17 +1058,11 @@ export default function KitchenDesigner() {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        if (!Array.isArray(data.vertices) || data.vertices.length < 3) throw new Error("bad-vertices");
+        const normalized = normalizeProject(data);
+        if (!normalized.rooms.length) throw new Error("bad-project");
         const suggested = data.name || file.name.replace(/\.json$/i, "") || "Projet importé";
         const name = window.prompt("Nom du projet importé", suggested) || suggested;
-        const p = {
-          id: uid(), name, savedAt: new Date().toISOString(),
-          vertices: data.vertices,
-          roomHeight: typeof data.roomHeight === "number" ? data.roomHeight : 240,
-          placements: Array.isArray(data.placements) ? data.placements : [],
-          freeItems: Array.isArray(data.freeItems) ? data.freeItems : [],
-          wallFlips: data.wallFlips && typeof data.wallFlips === "object" ? data.wallFlips : {},
-        };
+        const p = { ...normalized, id: uid(), name, savedAt: new Date().toISOString() };
         const updated = { ...projects, [p.id]: p };
         setProjects(updated);
         persistProjects(updated);
@@ -1026,6 +1078,8 @@ export default function KitchenDesigner() {
     e.target.value = "";
   }
 
+  const selectedEntry = selectedUid ? catalogById[items.find((it) => it.uid === selectedUid)?.catalogId] : null;
+
   return (
     <div className="app">
       <style>{`
@@ -1035,18 +1089,19 @@ export default function KitchenDesigner() {
         .header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #d7dde3; background:#ffffff; flex-wrap:wrap; gap:8px; }
         .header h1 { font-size:15px; letter-spacing:.04em; text-transform:uppercase; font-weight:600; margin:0; color:#1d2733; }
         .header .sub { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#1f6f93; margin-top:2px; }
-        .project-bar { display:flex; align-items:center; gap:8px; padding:8px 18px; background:#f7f9fa; border-bottom:1px solid #d7dde3; flex-wrap:wrap; }
-        .project-bar label { font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7789; }
-        .project-bar .select { width:auto; min-width:160px; }
-        .autosave-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8b96a3; margin-left:auto; }
         .btn { font-family:'IBM Plex Mono',monospace; font-size:12px; background:#f3f5f7; color:#1d2733; border:1px solid #c7d0d9; padding:7px 10px; border-radius:3px; cursor:pointer; }
         .btn:hover { border-color:#1f6f93; color:#1f6f93; }
         .btn:disabled { opacity:.4; cursor:default; }
         .btn.primary { background:#e2711d; color:#fff; border-color:#e2711d; font-weight:600; }
         .btn.primary:hover { background:#c95f13; border-color:#c95f13; color:#fff; }
+        .project-bar { display:flex; align-items:center; gap:8px; padding:8px 18px; background:#f7f9fa; border-bottom:1px solid #d7dde3; flex-wrap:wrap; }
+        .project-bar label { font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#6b7789; }
+        .project-bar .select { width:auto; min-width:160px; }
+        .autosave-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8b96a3; margin-left:auto; }
         .body { display:flex; flex:1; min-height:0; }
-        .sidebar { width:310px; border-right:1px solid #d7dde3; background:#ffffff; display:flex; flex-direction:column; }
-        .sidebar-right { width:310px; border-left:1px solid #d7dde3; background:#ffffff; display:flex; flex-direction:column; }
+        .sidebar, .sidebar-right { width:310px; background:#ffffff; display:flex; flex-direction:column; }
+        .sidebar { border-right:1px solid #d7dde3; }
+        .sidebar-right { border-left:1px solid #d7dde3; }
         .tabs { display:flex; border-bottom:1px solid #d7dde3; }
         .tab { flex:1; padding:10px 0; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; text-transform:uppercase; background:none; border:none; color:#6b7789; cursor:pointer; border-bottom:2px solid transparent; }
         .tab.active { color:#1f6f93; border-bottom-color:#1f6f93; }
@@ -1057,19 +1112,15 @@ export default function KitchenDesigner() {
         .select.small { padding:4px 6px; font-size:11px; width:auto; }
         input[type=range] { width:100%; accent-color:#e2711d; }
         .section-label { font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#1f6f93; padding:8px 0; }
+        .room-row { display:flex; align-items:center; gap:6px; margin-bottom:10px; }
         .vertex-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
         .vertex-row .vlabel { width:26px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; }
         .vertex-row input { width:100%; background:#ffffff; border:1px solid #c7d0d9; color:#1d2733; padding:5px 6px; border-radius:3px; font-family:'IBM Plex Mono',monospace; font-size:11px; }
-        .wall-row { display:flex; align-items:center; justify-content:space-between; border:1px solid #d7dde3; border-radius:4px; padding:8px 10px; margin-bottom:6px; cursor:pointer; }
-        .wall-row.active { border-color:#e2711d; background:#fff1e2; }
-        .wname { font-size:12px; }
-        .wlen { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; margin-top:2px; }
         .catalog-item { border:1px solid #d7dde3; border-radius:4px; padding:10px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
         .swatch { width:14px; height:14px; border-radius:2px; flex-shrink:0; border:1px solid #b9c2cc; }
         .catalog-item .meta { flex:1; }
         .catalog-item .name { font-size:12px; font-weight:500; }
         .catalog-item .dims { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; margin-top:2px; }
-        .group-header { font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#1f6f93; margin-bottom:8px; }
         .layout-row { border:1px solid #d7dde3; border-radius:4px; padding:8px 10px; margin-bottom:6px; cursor:pointer; }
         .layout-row.selected { border-color:#e2711d; background:#fff1e2; }
         .layout-row .top { display:flex; justify-content:space-between; align-items:center; }
@@ -1080,6 +1131,7 @@ export default function KitchenDesigner() {
         .warning { background:#fdeaea; border:1px solid #d64545; color:#8a2020; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:6px 8px; border-radius:3px; margin-bottom:8px; }
         .main { flex:1; display:flex; flex-direction:column; min-width:0; background:#ffffff; }
         .editor2d-wrap { flex:1; min-height:280px; border-bottom:1px solid #d7dde3; padding:6px; }
+        .viewer3d-bar { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid #d7dde3; }
         .viewer3d-wrap { height:320px; }
         .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; touch-action:none; }
         .dim-text { font-family:'IBM Plex Mono',monospace; fill:#1f6f93; }
@@ -1089,12 +1141,11 @@ export default function KitchenDesigner() {
         .radii-grid label { grid-column:1 / -1; }
 
         @media (max-width: 860px) {
-          .project-bar { padding: 8px 12px; }
-          .autosave-hint { display: none; }
           .app { min-height: 100vh; height: auto; }
           .body { flex-direction: column; }
-          .sidebar { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-right: none; border-bottom: 1px solid #d7dde3; }
-          .sidebar-right { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border-left: none; border-top: 1px solid #d7dde3; }
+          .project-bar { padding: 8px 12px; }
+          .autosave-hint { display: none; }
+          .sidebar, .sidebar-right { width: 100%; max-height: 42vh; min-height: 0; overflow: hidden; border: none; border-bottom: 1px solid #d7dde3; }
           .header { padding: 10px 12px; }
           .header h1 { font-size: 13px; }
           .header .sub { font-size: 10px; }
@@ -1111,19 +1162,20 @@ export default function KitchenDesigner() {
 
       <div className="header">
         <div>
-          <h1>Atelier Cuisine</h1>
-          <div className="sub">prototype paramétrique — v0.6 · thème clair, projet réimportable</div>
+          <h1>Atelier Appartement</h1>
+          <div className="sub">prototype paramétrique — v1.0 · plusieurs pièces, placement libre, 3D à la demande</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={handleImportFile} />
           <button className="btn" onClick={triggerImport}>Importer un projet</button>
           <button className="btn" onClick={resetAll}>Réinitialiser</button>
           <button className="btn" onClick={handleExportProject}>Exporter projet (JSON)</button>
-          <button className="btn" onClick={() => exportMaterialsCSV(allSolids)} disabled={allSolids.length === 0}>Liste de matériel (CSV)</button>
-          <button className="btn" onClick={() => exportFloorPlanSVG(vertices, walls, allSolids, roomArea, roomHeight)}>Plan pro (SVG)</button>
-          <button className="btn primary" onClick={() => exportGLTF(allSolids)} disabled={allSolids.length === 0}>Export 3D (GLTF)</button>
+          <button className="btn" onClick={() => exportMaterialsCSV(rooms, items)} disabled={items.length === 0}>Liste de matériel (CSV)</button>
+          <button className="btn" onClick={() => exportFloorPlanSVG(rooms, items)}>Plan pro (SVG)</button>
+          <button className="btn primary" onClick={() => exportGLTF(roomItemsComputed)} disabled={roomItemsComputed.length === 0}>Export 3D (GLTF)</button>
         </div>
       </div>
+
       <div className="project-bar">
         <label>Projet</label>
         <select className="select" value={activeProjectId} onChange={(e) => switchProject(e.target.value)}>
@@ -1145,51 +1197,41 @@ export default function KitchenDesigner() {
             <button className={`tab ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}>Catalogue</button>
           </div>
 
-          {tab === "room" && (
+          {tab === "room" && activeRoom && (
             <div className="panel">
+              <div className="section-label">Pièce active</div>
+              <div className="room-row">
+                <select className="select" value={activeRoomId} onChange={(e) => setActiveRoomId(e.target.value)}>
+                  {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div className="row-actions" style={{ marginTop: -4, marginBottom: 14 }}>
+                <button className="btn" onClick={addRoom}>+ Nouvelle pièce</button>
+                <button className="btn" onClick={renameRoom}>Renommer</button>
+                <button className="btn" onClick={deleteRoom} disabled={rooms.length <= 1}>Supprimer</button>
+              </div>
+
               <div className="field">
                 <label>Hauteur sous plafond (cm)</label>
-                <input type="number" value={roomHeight} onChange={(e) => setRoomHeight(Number(e.target.value) || 0)} />
+                <input type="number" value={activeRoom.height} onChange={(e) => updateRoomHeight(Number(e.target.value) || 0)} />
               </div>
               <div className="field"><label>Surface</label><div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 13 }}>{roomArea} m²</div></div>
 
               <div className="section-label">Sommets du polygone</div>
-              {vertices.map((v, i) => (
+              {activeRoom.vertices.map((v, i) => (
                 <div className="vertex-row" key={i}>
                   <span className="vlabel">P{i + 1}</span>
                   <input type="number" value={v.x} onChange={(e) => updateVertex(i, "x", Number(e.target.value) || 0)} />
                   <input type="number" value={v.y} onChange={(e) => updateVertex(i, "y", Number(e.target.value) || 0)} />
-                  <button className="btn" onClick={() => removeVertex(i)} disabled={vertices.length <= 3}>×</button>
+                  <button className="btn" onClick={() => removeVertex(i)} disabled={activeRoom.vertices.length <= 3}>×</button>
                 </div>
               ))}
               <button className="btn" style={{ width: "100%", marginTop: 4 }} onClick={addVertex}>+ Ajouter un sommet</button>
-
-              <div className="section-label" style={{ marginTop: 16 }}>Murs</div>
-              {walls.map((w) => {
-                const floorT = bandTotals[`${w.index}|floor`] || 0;
-                const wallT = bandTotals[`${w.index}|wall`] || 0;
-                const over = floorT > w.length || wallT > w.length;
-                return (
-                  <div key={w.index} className={`wall-row ${activeWallIndex === w.index ? "active" : ""}`} onClick={() => setActiveWallIndex(w.index)}>
-                    <div>
-                      <div className="wname">Mur {w.index + 1}</div>
-                      <div className="wlen" style={over ? { color: "#c23434" } : undefined}>{w.length} cm{over ? " — dépassement" : ""}</div>
-                    </div>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); setWallFlips((f) => ({ ...f, [w.index]: !f[w.index] })); }}>Retourner</button>
-                  </div>
-                );
-              })}
             </div>
           )}
 
           {tab === "catalog" && (
             <div className="panel">
-              <div className="field">
-                <label>Mur actif (les ajouts s'y placent)</label>
-                <select className="select" value={activeWallIndex} onChange={(e) => setActiveWallIndex(Number(e.target.value))}>
-                  {walls.map((w) => <option key={w.index} value={w.index}>Mur {w.index + 1} ({w.length} cm)</option>)}
-                </select>
-              </div>
               {GROUPS.map((g) => (
                 <div key={g}>
                   <div className="section-label">{g}</div>
@@ -1200,164 +1242,17 @@ export default function KitchenDesigner() {
                         <div className="name">{c.name}</div>
                         <div className="dims">{c.widthMin === c.widthMax ? `${c.defaultWidth}` : `${c.widthMin}–${c.widthMax}`}×{c.depthMin === c.depthMax ? `${c.defaultDepth}` : `${c.depthMin}–${c.depthMax}`} cm</div>
                       </div>
-                      <button className="btn" onClick={() => addModule(c.id)}>+</button>
+                      <button className="btn" onClick={() => addItem(c.id)}>+</button>
                     </div>
                   ))}
                 </div>
               ))}
             </div>
           )}
-
-        </div>
-
-        <div className="sidebar-right">
-          <div className="tabs">
-            <button className={`tab ${rightTab === "layout" ? "active" : ""}`} onClick={() => setRightTab("layout")}>Disposition</button>
-            <button className={`tab ${rightTab === "free" ? "active" : ""}`} onClick={() => setRightTab("free")}>Mobilier</button>
-          </div>
-
-          {rightTab === "layout" && (
-            <div className="panel">
-              {placements.length === 0 && <div className="empty">Aucun élément. Ajoute-en depuis le catalogue.</div>}
-              {walls.map((w) => {
-                const bands = ["floor", "wall", "opening"];
-                const groups = bands.map((b) => ({ b, items: layout.filter((it) => it.wallIndex === w.index && it.catalogEntry.band === b) })).filter((g) => g.items.length);
-                if (groups.length === 0) return null;
-                return (
-                  <div key={w.index} style={{ marginBottom: 18 }}>
-                    <div className="section-label">Mur {w.index + 1}</div>
-                    {groups.map(({ b, items }) => {
-                      const total = bandTotals[`${w.index}|${b}`] || 0;
-                      const over = b !== "opening" && total > w.length;
-                      return (
-                        <div key={b} style={{ marginBottom: 10 }}>
-                          <div className="group-header">{BAND_LABEL[b]}{b !== "opening" ? ` — ${total}/${w.length} cm` : ""}</div>
-                          {over && <div className="warning">Dépassement sur ce mur</div>}
-                          {items.map((item) => {
-                            const e = item.catalogEntry;
-                            const bad = overlapFlags[item.uid];
-                            return (
-                              <div key={item.uid} className={`layout-row ${selectedUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedUid(item.uid)}>
-                                <div className="top">
-                                  <span className="name">{e.name}{bad ? " ⚠" : ""}</span>
-                                  <span className="w">{item.width}×{item.depth} cm</span>
-                                </div>
-                                {e.widthMin !== e.widthMax && (
-                                  <div className="field" style={{ margin: "6px 0 0" }}>
-                                    <label>Largeur : {item.width} cm</label>
-                                    <input type="range" min={e.widthMin} max={e.widthMax} step={e.widthStep} value={item.width}
-                                      onChange={(ev) => updateWidth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
-                                  </div>
-                                )}
-                                {e.depthMin !== e.depthMax && (
-                                  <div className="field" style={{ margin: "6px 0 0" }}>
-                                    <label>Profondeur : {item.depth} cm</label>
-                                    <input type="range" min={e.depthMin} max={e.depthMax} step={e.depthStep} value={item.depth}
-                                      onChange={(ev) => updateDepth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
-                                  </div>
-                                )}
-                                <div className="field" style={{ margin: "8px 0 0" }}>
-                                  <label>Position depuis le début du mur (cm)</label>
-                                  <div style={{ display: "flex", gap: 4 }}>
-                                    <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateOffset(item.uid, item.offset - 5); }}>−5</button>
-                                    <input type="number" value={item.offset} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateOffset(item.uid, Number(ev.target.value) || 0)} />
-                                    <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateOffset(item.uid, item.offset + 5); }}>+5</button>
-                                  </div>
-                                </div>
-                                {b !== "opening" && (
-                                  <div className="field" style={{ margin: "8px 0 0" }}>
-                                    <label>Distance du mur (cm)</label>
-                                    <div style={{ display: "flex", gap: 4 }}>
-                                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateStandoff(item.uid, item.standoff - 5); }}>−5</button>
-                                      <input type="number" value={item.standoff} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateStandoff(item.uid, Number(ev.target.value) || 0)} />
-                                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateStandoff(item.uid, item.standoff + 5); }}>+5</button>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateStandoff(item.uid, 0); }}>Contre le mur</button>
-                                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateStandoff(item.uid, 60); }}>60 cm</button>
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="row-actions">
-                                  <select className="select small" value={item.wallIndex} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => reassignWall(item.uid, Number(ev.target.value))}>
-                                    {walls.map((w2) => <option key={w2.index} value={w2.index}>Mur {w2.index + 1}</option>)}
-                                  </select>
-                                  <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeModule(item.uid); }}>Suppr.</button>
-                                </div>
-                                {bad && <div className="warning" style={{ marginTop: 6 }}>Chevauche un autre élément de ce groupe</div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {rightTab === "free" && (
-            <div className="panel">
-              <div className="section-label">Ajouter</div>
-              {FREE_CATALOG.map((c) => (
-                <div className="catalog-item" key={c.id}>
-                  <div className="swatch" style={{ background: c.color }} />
-                  <div className="meta">
-                    <div className="name">{c.name}</div>
-                    <div className="dims">{c.defaultWidth}×{c.defaultDepth} cm</div>
-                  </div>
-                  <button className="btn" onClick={() => addFreeItem(c.id)}>+</button>
-                </div>
-              ))}
-
-              <div className="section-label" style={{ marginTop: 16 }}>Dans la pièce</div>
-              {freeItems.length === 0 && <div className="empty">Table, chaises, banquette, TV, plan de travail… tout ça se place n'importe où dans la pièce, indépendamment des murs — glisse-les librement sur le plan.</div>}
-              {freeItemsComputed.map((item) => {
-                const entry = freeCatalogById[item.typeId] || FREE_CATALOG[0];
-                return (
-                  <div key={item.uid} className={`layout-row ${selectedFreeUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedFreeUid(item.uid)}>
-                    <div className="top"><span className="name">{entry.name}</span><span className="w">{item.width}×{item.depth} cm</span></div>
-                    <div className="field" style={{ margin: "8px 0 0" }}>
-                      <label>Position X / Y (cm)</label>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <input type="number" value={item.x} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { x: Number(ev.target.value) || 0 })} />
-                        <input type="number" value={item.y} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { y: Number(ev.target.value) || 0 })} />
-                      </div>
-                    </div>
-                    <div className="field" style={{ margin: "8px 0 0" }}>
-                      <label>Largeur / Profondeur (cm)</label>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <input type="number" value={item.width} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { width: Math.max(10, Number(ev.target.value) || 10) })} />
-                        <input type="number" value={item.depth} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { depth: Math.max(10, Number(ev.target.value) || 10) })} />
-                      </div>
-                    </div>
-                    <div className="field" style={{ margin: "8px 0 0" }}>
-                      <label>Angle (°)</label>
-                      <input type="number" value={item.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
-                    </div>
-                    {entry.roundable && (
-                      <div className="field radii-grid" style={{ margin: "8px 0 0" }}>
-                        <label>Rayon des coins (cm) — pousse les 4 au max pour approcher un rond</label>
-                        {[0, 1, 2, 3].map((idx) => (
-                          <input key={idx} type="number" value={(item.radii || [0, 0, 0, 0])[idx]} placeholder={`Coin ${idx + 1}`}
-                            onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateFreeItemRadius(item.uid, idx, ev.target.value)} />
-                        ))}
-                      </div>
-                    )}
-                    <div className="row-actions">
-                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); duplicateFreeItem(item.uid); }}>Dupliquer</button>
-                      <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeFreeItem(item.uid); }}>Supprimer</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
         <div className="main">
-          <div className="footer-hint">Points ambre = sommets · meubles = glisser le long du mur · plans de travail = glisser librement</div>
+          <div className="footer-hint">Points ambre = sommets de la pièce · objets = glisser librement, ou saisir les coordonnées dans la liste à droite</div>
           <div className="editor2d-wrap">
             <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ touchAction: "none" }}>
               <defs>
@@ -1366,69 +1261,46 @@ export default function KitchenDesigner() {
                 </pattern>
               </defs>
               <rect x={bounds.minX} y={bounds.minY} width={bounds.w} height={bounds.h} fill="#ffffff" />
-              <polygon points={polyPoints} fill="url(#grid)" stroke="none" />
-              <text x={centroid.x} y={centroid.y} textAnchor="middle" className="dim-text" fontSize="14" fontWeight="600">{roomArea} m²</text>
+              {activeRoom && <polygon points={polyPoints} fill="url(#grid)" stroke="none" />}
+              {activeRoom && <text x={centroid.x} y={centroid.y} textAnchor="middle" className="dim-text" fontSize="14" fontWeight="600">{roomArea} m²</text>}
 
-              {walls.map((w) => {
-                const floorT = bandTotals[`${w.index}|floor`] || 0;
-                const wallT = bandTotals[`${w.index}|wall`] || 0;
-                const over = floorT > w.length || wallT > w.length;
-                const isActive = activeWallIndex === w.index;
+              {edges.map((w, i) => {
                 const midX = (w.A.x + w.B.x) / 2, midY = (w.A.y + w.B.y) / 2;
                 const lx = midX + w.normal.x * 14, ly = midY + w.normal.y * 14;
                 return (
-                  <g key={w.index}>
-                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y}
-                      stroke={over ? "#d64545" : isActive ? "#e2711d" : "#1f6f93"}
-                      strokeWidth={isActive ? 2.4 : 1.4} vectorEffect="non-scaling-stroke"
-                      style={{ cursor: "pointer" }}
-                      onPointerDown={(e) => { e.stopPropagation(); setActiveWallIndex(w.index); }} />
+                  <g key={i}>
+                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke="#1f6f93" strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
                     <text x={lx} y={ly} textAnchor="middle" className="dim-text" fontSize="7">{w.length}</text>
                   </g>
                 );
               })}
 
-              {layout.map((item) => {
-                const bad = overlapFlags[item.uid];
+              {roomItemsComputed.map((item) => {
                 const selected = selectedUid === item.uid;
                 const band = item.catalogEntry.band;
+                if (item.catalogEntry.roundable) {
+                  const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
+                  return (
+                    <g key={item.uid} onPointerDown={(e) => onItemDown(item, e)} style={{ cursor: "grab" }}>
+                      {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
+                      <path d={d} fill={item.catalogEntry.color} opacity={selected ? 0.95 : 0.65} stroke={selected ? "#e2711d" : "#1d2733"} strokeWidth={selected ? 2.6 : 0.7} vectorEffect="non-scaling-stroke" />
+                    </g>
+                  );
+                }
                 const opacity = selected ? 1 : band === "wall" ? 0.35 : band === "opening" ? 0.6 : 0.9;
                 const dash = band === "wall" && !selected ? "4,3" : undefined;
-                const stroke = selected ? "#e2711d" : bad ? "#d64545" : "#1d2733";
+                const stroke = selected ? "#e2711d" : "#1d2733";
                 const pts = item.corners.map((c) => `${c.x},${c.y}`).join(" ");
                 return (
-                  <g key={item.uid} onPointerDown={(e) => onModuleDown(item, e)} style={{ cursor: "grab" }}>
-                    {selected && (
-                      <polygon points={pts} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />
-                    )}
-                    <polygon points={pts}
-                      fill={item.catalogEntry.color} opacity={opacity}
-                      stroke={stroke} strokeWidth={selected ? 2.6 : bad ? 1.6 : 0.7}
-                      strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
+                  <g key={item.uid} onPointerDown={(e) => onItemDown(item, e)} style={{ cursor: "grab" }}>
+                    {selected && <polygon points={pts} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
+                    <polygon points={pts} fill={item.catalogEntry.color} opacity={opacity} stroke={stroke} strokeWidth={selected ? 2.6 : 0.7} strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
                     <SymbolShapes item={item} />
                   </g>
                 );
               })}
 
-              {freeItemsComputed.map((item) => {
-                const selected = selectedFreeUid === item.uid;
-                const entry = freeCatalogById[item.typeId] || FREE_CATALOG[0];
-                const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
-                return (
-                  <g key={item.uid} onPointerDown={(e) => onFreeItemDown(item, e)} style={{ cursor: "move" }}>
-                    {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
-                    <path d={d}
-                      fill={entry.color} opacity={selected ? 0.95 : 0.65}
-                      stroke={selected ? "#e2711d" : "#1d2733"} strokeWidth={selected ? 2.6 : 0.7}
-                      vectorEffect="non-scaling-stroke" />
-                    {item.width > 30 && (
-                      <text x={item.x} y={item.y + 3} textAnchor="middle" fontFamily="'IBM Plex Mono',monospace" fontSize="7" fill="#1d2733" pointerEvents="none">{entry.name}</text>
-                    )}
-                  </g>
-                );
-              })}
-
-              {vertices.map((v, i) => (
+              {activeRoom && activeRoom.vertices.map((v, i) => (
                 <g key={i}>
                   <circle cx={v.x} cy={v.y} r={16} fill="transparent" style={{ cursor: "grab" }} onPointerDown={(e) => onVertexDown(i, e)} />
                   <circle cx={v.x} cy={v.y} r={7} fill="#ffffff" stroke="#e2711d" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
@@ -1436,8 +1308,73 @@ export default function KitchenDesigner() {
               ))}
             </svg>
           </div>
-          <div className="section-label" style={{ padding: "8px 12px", borderBottom: "1px solid #d7dde3" }}>Vue 3D — glisser pour orbiter, molette pour zoomer</div>
-          <div className="viewer3d-wrap"><div ref={containerRef} /></div>
+          <div className="viewer3d-bar">
+            <div className="section-label" style={{ padding: 0 }}>{show3D ? "Vue 3D — glisser pour orbiter, molette/pincer pour zoomer" : "Vue 3D masquée"}</div>
+            <button className="btn" onClick={() => setShow3D((v) => !v)}>{show3D ? "Masquer la 3D" : "Afficher la 3D"}</button>
+          </div>
+          {show3D && <div className="viewer3d-wrap"><div ref={containerRef} /></div>}
+        </div>
+
+        <div className="sidebar-right">
+          <div className="tabs"><div className="tab active" style={{ cursor: "default" }}>Objets — {activeRoom?.name}</div></div>
+          <div className="panel">
+            {roomItemsComputed.length === 0 && <div className="empty">Aucun objet dans cette pièce. Ajoute-en depuis le catalogue à gauche.</div>}
+            {roomItemsComputed.map((item) => {
+              const e = item.catalogEntry;
+              const raw = items.find((it) => it.uid === item.uid);
+              return (
+                <div key={item.uid} className={`layout-row ${selectedUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedUid(item.uid)}>
+                  <div className="top">
+                    <span className="name">{e.name}</span>
+                    <span className="w">{item.width}×{item.depth} cm</span>
+                  </div>
+                  <div className="field" style={{ margin: "8px 0 0" }}>
+                    <label>Position X / Y (cm)</label>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input type="number" value={raw.x} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { x: Number(ev.target.value) || 0 })} />
+                      <input type="number" value={raw.y} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { y: Number(ev.target.value) || 0 })} />
+                    </div>
+                  </div>
+                  {e.widthMin !== e.widthMax && (
+                    <div className="field" style={{ margin: "6px 0 0" }}>
+                      <label>Largeur : {item.width} cm</label>
+                      <input type="range" min={e.widthMin} max={e.widthMax} step={e.widthStep} value={item.width}
+                        onChange={(ev) => updateItemWidth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
+                    </div>
+                  )}
+                  {e.depthMin !== e.depthMax && (
+                    <div className="field" style={{ margin: "6px 0 0" }}>
+                      <label>Profondeur : {item.depth} cm</label>
+                      <input type="range" min={e.depthMin} max={e.depthMax} step={e.depthStep} value={item.depth}
+                        onChange={(ev) => updateItemDepth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
+                    </div>
+                  )}
+                  <div className="field" style={{ margin: "8px 0 0" }}>
+                    <label>Angle (°)</label>
+                    <input type="number" value={raw.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
+                  </div>
+                  {e.roundable && (
+                    <div className="field radii-grid" style={{ margin: "8px 0 0" }}>
+                      <label>Rayon des coins (cm) — pousse les 4 au max pour approcher un rond</label>
+                      {[0, 1, 2, 3].map((idx) => (
+                        <input key={idx} type="number" value={(raw.radii || [0, 0, 0, 0])[idx]} placeholder={`Coin ${idx + 1}`}
+                          onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItemRadius(item.uid, idx, ev.target.value)} />
+                      ))}
+                    </div>
+                  )}
+                  <div className="row-actions">
+                    {rooms.length > 1 && (
+                      <select className="select small" value={raw.roomId} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => reassignRoom(item.uid, ev.target.value)}>
+                        {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    )}
+                    <button className="btn" onClick={(ev) => { ev.stopPropagation(); duplicateItem(item.uid); }}>Dupliquer</button>
+                    <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeItem(item.uid); }}>Supprimer</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
