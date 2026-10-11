@@ -990,6 +990,27 @@ function persistActive(id) {
 // ---------------------------------------------------------------------------
 // Composant principal
 // ---------------------------------------------------------------------------
+// Champ numérique pour une dimension libre (décimales acceptées, au dixième de cm). Garde le texte tapé
+// tant que le champ a le focus, pour pouvoir l'effacer et le retaper sans que la valeur saute.
+function DimInput({ value, onCommit }) {
+  const [text, setText] = useState("");
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      type="number" inputMode="decimal" step="any" min="1"
+      value={focused ? text : value}
+      onFocus={(ev) => { setText(String(value)); setFocused(true); ev.target.select(); }}
+      onBlur={() => setFocused(false)}
+      onClick={(ev) => ev.stopPropagation()}
+      onChange={(ev) => {
+        setText(ev.target.value);
+        const n = parseFloat(ev.target.value);
+        if (Number.isFinite(n) && n >= 1) onCommit(Math.round(n * 10) / 10);
+      }}
+    />
+  );
+}
+
 export default function KitchenDesigner() {
   const [initData] = useState(() => {
     const { projects, activeId } = loadStore();
@@ -1385,15 +1406,13 @@ export default function KitchenDesigner() {
   function updateItemWidth(id, w) {
     setItems((its) => its.map((it) => {
       if (it.uid !== id) return it;
-      const e = catalogById[it.catalogId];
-      return { ...it, width: Math.min(e.widthMax, Math.max(e.widthMin, w)) };
+      return { ...it, width: Math.max(1, w) }; // dimension libre (pas de plage ni de pas imposés)
     }));
   }
   function updateItemDepth(id, d) {
     setItems((its) => its.map((it) => {
       if (it.uid !== id) return it;
-      const e = catalogById[it.catalogId];
-      return { ...it, depth: Math.min(e.depthMax, Math.max(e.depthMin, d)) };
+      return { ...it, depth: Math.max(1, d) };
     }));
   }
   function updateItemRadius(id, idx, val) {
@@ -1556,7 +1575,7 @@ export default function KitchenDesigner() {
       <div className="swatch" style={{ background: c.color }} />
       <div className="meta">
         <div className="name">{c.name}</div>
-        <div className="dims">{c.widthMin === c.widthMax ? `${c.defaultWidth}` : `${c.widthMin}–${c.widthMax}`}×{c.depthMin === c.depthMax ? `${c.defaultDepth}` : `${c.depthMin}–${c.depthMax}`} cm</div>
+        <div className="dims">{c.defaultWidth}×{c.defaultDepth} cm par défaut</div>
       </div>
       <span className="add">+</span>
     </div>
@@ -1951,20 +1970,13 @@ export default function KitchenDesigner() {
                       <input type="number" value={raw.y} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { y: Number(ev.target.value) || 0 })} />
                     </div>
                   </div>
-                  {e.widthMin !== e.widthMax && (
-                    <div className="field" style={{ margin: "6px 0 0" }}>
-                      <label>Largeur : {item.width} cm</label>
-                      <input type="range" min={e.widthMin} max={e.widthMax} step={e.widthStep} value={item.width}
-                        onChange={(ev) => updateItemWidth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
+                  <div className="field" style={{ margin: "8px 0 0" }}>
+                    <label>Largeur / Profondeur (cm) — saisie libre</label>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <DimInput value={item.width} onCommit={(n) => updateItemWidth(item.uid, n)} />
+                      <DimInput value={item.depth} onCommit={(n) => updateItemDepth(item.uid, n)} />
                     </div>
-                  )}
-                  {e.depthMin !== e.depthMax && (
-                    <div className="field" style={{ margin: "6px 0 0" }}>
-                      <label>Profondeur : {item.depth} cm</label>
-                      <input type="range" min={e.depthMin} max={e.depthMax} step={e.depthStep} value={item.depth}
-                        onChange={(ev) => updateItemDepth(item.uid, Number(ev.target.value))} onClick={(ev) => ev.stopPropagation()} />
-                    </div>
-                  )}
+                  </div>
                   <div className="field" style={{ margin: "8px 0 0" }}>
                     <label>Angle (°)</label>
                     <input type="number" value={raw.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
