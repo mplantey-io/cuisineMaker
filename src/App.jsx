@@ -648,7 +648,7 @@ function hexToRgb01(hex) {
 // ---------------------------------------------------------------------------
 // Export 3D — GLTF minimal (boîtes positionnées/rotées) de la pièce active
 // ---------------------------------------------------------------------------
-function exportGLTF(items) {
+function exportGLTF(items, format = "gltf") {
   const chunks = [];
   let byteOffset = 0;
   const bufferViews = [], accessors = [], meshes = [], nodes = [], materials = [];
@@ -700,21 +700,36 @@ function exportGLTF(items) {
   const bin = new Uint8Array(totalLength);
   let off = 0;
   chunks.forEach((c) => { bin.set(c, off); off += c.length; });
-  let binaryStr = "";
-  for (let i = 0; i < bin.length; i++) binaryStr += String.fromCharCode(bin[i]);
-  const base64 = btoa(binaryStr);
-
-  const gltf = {
+  const gltfBase = {
     asset: { version: "2.0", generator: "kitchen-designer-prototype" },
     scene: 0, scenes: [{ nodes: nodes.map((_, i) => i) }],
     nodes, meshes, materials,
-    buffers: [{ byteLength: totalLength, uri: `data:application/octet-stream;base64,${base64}` }],
     bufferViews, accessors,
   };
-  const blob = new Blob([JSON.stringify(gltf, null, 2)], { type: "model/gltf+json" });
+  let blob, ext;
+  if (format === "glb") {
+    // GLB : en-tête (12 octets) + bloc JSON + bloc binaire, chaque bloc aligné sur 4 octets
+    const json = new TextEncoder().encode(JSON.stringify({ ...gltfBase, buffers: [{ byteLength: totalLength }] }));
+    const jsonLen = json.length + ((4 - (json.length % 4)) % 4);
+    const binLen = totalLength + ((4 - (totalLength % 4)) % 4);
+    const glb = new Uint8Array(12 + 8 + jsonLen + 8 + binLen);
+    const dv = new DataView(glb.buffer);
+    dv.setUint32(0, 0x46546c67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.length, true);
+    dv.setUint32(12, jsonLen, true); dv.setUint32(16, 0x4e4f534a, true);
+    glb.set(json, 20); glb.fill(0x20, 20 + json.length, 20 + jsonLen);
+    const binStart = 20 + jsonLen;
+    dv.setUint32(binStart, binLen, true); dv.setUint32(binStart + 4, 0x004e4942, true);
+    glb.set(bin, binStart + 8);
+    blob = new Blob([glb], { type: "model/gltf-binary" }); ext = "glb";
+  } else {
+    let binaryStr = "";
+    for (let i = 0; i < bin.length; i++) binaryStr += String.fromCharCode(bin[i]);
+    const gltf = { ...gltfBase, buffers: [{ byteLength: totalLength, uri: `data:application/octet-stream;base64,${btoa(binaryStr)}` }] };
+    blob = new Blob([JSON.stringify(gltf, null, 2)], { type: "model/gltf+json" }); ext = "gltf";
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `piece_${timestamp()}.gltf`;
+  a.href = url; a.download = `piece_${timestamp()}.${ext}`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -1734,6 +1749,7 @@ export default function KitchenDesigner() {
             <div className="menu-list" onClick={closeMenu}>
               <button onClick={() => exportFloorPlanSVG(rooms, items)}>Plan pro (SVG)</button>
               <button onClick={() => exportMaterialsCSV(rooms, items)} disabled={items.length === 0}>Liste de matériel (CSV)</button>
+              <button onClick={() => exportGLTF(roomItemsComputed, "glb")} disabled={roomItemsComputed.length === 0}>Modèle 3D (GLB)</button>
               <button onClick={() => exportGLTF(roomItemsComputed)} disabled={roomItemsComputed.length === 0}>Modèle 3D (GLTF)</button>
             </div>
           </details>
