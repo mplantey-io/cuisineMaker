@@ -179,6 +179,7 @@ const CATALOG = [
   { id: "desk", name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
   { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
   { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
+  { id: "banquette", name: "Banquette", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#6f8fa8", height: 45, yOffset: 0, depthMin: 40, depthMax: 60, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 150, roundable: true },
   ...MOBALPA_CATALOG,
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
