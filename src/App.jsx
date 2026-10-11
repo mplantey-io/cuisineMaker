@@ -6,6 +6,140 @@ import * as THREE from "three";
 // pièce, quel que soit son type. "band" ne sert plus qu'au rendu (opacité,
 // hauteur de pose) — il n'y a plus de notion de mur porteur.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Volumes réalistes — un meuble peut être décrit par plusieurs boîtes ("parts"),
+// en cm dans le repère de l'objet : x = largeur (centre), z = profondeur (centre,
+// +z = façade), y = hauteur depuis la base de l'objet (bas de la boîte).
+// Sans "parts", l'objet reste une simple boîte (comportement historique).
+// ---------------------------------------------------------------------------
+const MB = { plinth: 5, setback: 8, facadeT: 1.8, gap: 0.4 };
+const MB_BODY = "#ece7dd", MB_PLINTH = "#3a3d42", MB_HANDLE = "#b9bcc0", MB_APPLI = "#25282d";
+function mbBox(x, y, z, w, h, d, color) { return { x, y, z, w, h, d, color }; }
+
+// Façades d'une travée. rows = poids de hauteur de chaque façade, du bas vers le haut
+// (négatif = appareil encastré : sombre, sans poignée) ; cols = nombre de vantaux.
+// handle : "h" (barre horizontale, tiroirs) ou "v" (barre verticale, portes) ; low = poignée côté bas.
+function mbFronts({ x0, w, zFront, y0, h, color, rows, cols = 1, handle, low = false }) {
+  const t = MB.facadeT, g = MB.gap, out = [];
+  const kind = handle || (rows.length > 1 ? "h" : "v");
+  const fw = (w - g * (cols + 1)) / cols;
+  const total = rows.reduce((s, r) => s + Math.abs(r), 0);
+  const avail = h - g * (rows.length + 1);
+  let y = y0 + g;
+  rows.forEach((r) => {
+    const fh = (avail * Math.abs(r)) / total;
+    for (let c = 0; c < cols; c++) {
+      const fx = x0 - w / 2 + g + fw / 2 + c * (fw + g);
+      out.push(mbBox(fx, y, zFront - t / 2, fw, fh, t, r < 0 ? MB_APPLI : color));
+      if (r > 0) {
+        if (kind === "h") out.push(mbBox(fx, low ? y + 3 : y + fh - 4, zFront + 0.75, Math.min(fw * 0.7, 40), 1.2, 1.5, MB_HANDLE));
+        else {
+          const hh = Math.min(fh * 0.4, 30);
+          const hx = cols > 1 ? fx + (c < cols / 2 ? 1 : -1) * (fw / 2 - 3) : fx + fw / 2 - 3;
+          out.push(mbBox(hx, low ? y + 3 : y + fh - hh - 4, zFront + 0.75, 1.2, hh, 1.5, MB_HANDLE));
+        }
+      }
+    }
+    y += fh + g;
+  });
+  return out;
+}
+// Caisson rectangulaire : socle en retrait (si plinth > 0) + caisson + façades.
+function mbUnit({ w, d, plinth = MB.plinth, bodyH, color, rows = [1], cols = 1, handle, low }) {
+  const t = MB.facadeT, parts = [];
+  if (plinth > 0) parts.push(mbBox(0, 0, -MB.setback / 2, w - 0.4, plinth, d - MB.setback, MB_PLINTH));
+  parts.push(mbBox(0, plinth, -t / 2, w, bodyH, d - t, MB_BODY));
+  return parts.concat(mbFronts({ x0: 0, w, zFront: d / 2, y0: plinth, h: bodyH, color, rows, cols, handle, low }));
+}
+// Caisson d'angle en L : une branche le long du mur du fond (profondeur "leg"), une le long du mur
+// de gauche (largeur "leg"). Le carré w-leg × d-leg à l'avant-droite reste vide.
+function mbCornerL({ w, d, leg, plinth = MB.plinth, bodyH, color, handle, low }) {
+  const t = MB.facadeT, parts = [];
+  const zA = -d / 2 + leg, xB = -w / 2 + leg;
+  const xA = (xB + w / 2) / 2, wA = w - leg;
+  if (plinth > 0) {
+    parts.push(mbBox(xA, 0, -d / 2 + (leg - MB.setback) / 2, wA - 0.2, plinth, leg - MB.setback, MB_PLINTH));
+    parts.push(mbBox(-w / 2 + leg / 2, 0, -MB.setback / 2, leg, plinth, d - MB.setback, MB_PLINTH));
+  }
+  parts.push(mbBox(xA, plinth, -d / 2 + leg / 2, wA, bodyH, leg, MB_BODY));
+  parts.push(mbBox(-w / 2 + leg / 2, plinth, -t / 2, leg, bodyH, d - t, MB_BODY));
+  return parts
+    .concat(mbFronts({ x0: xA, w: wA, zFront: zA + t, y0: plinth, h: bodyH, color, rows: [1], handle, low }))
+    .concat(mbFronts({ x0: -w / 2 + leg / 2, w: leg, zFront: d / 2, y0: plinth, h: bodyH, color, rows: [1], handle, low }));
+}
+// Étagère ouverte : fond, deux montants et trois tablettes.
+function mbOpenShelf({ w, d, h, color }) {
+  const parts = [mbBox(0, 0, -d / 2 + 0.8, w, h, 1.6, MB_BODY), mbBox(-w / 2 + 0.9, 0, 0, 1.8, h, d, MB_BODY), mbBox(w / 2 - 0.9, 0, 0, 1.8, h, d, MB_BODY)];
+  [0, (h - 1.8) / 2, h - 1.8].forEach((y) => parts.push(mbBox(0, y, 0, w - 3.6, 1.8, d, color)));
+  return parts;
+}
+
+const MB_BAS_BODY = 82.8, MB_COL_BODY = 207;
+const MB_BAS_H = MB.plinth + MB_BAS_BODY, MB_COL_H = MB.plinth + MB_COL_BODY;
+const G_BAS = "Mobalpa — Bas", G_HAUT = "Mobalpa — Hauts", G_COL = "Mobalpa — Colonnes", G_FIN = "Mobalpa — Plans & finitions";
+const C_BAS = "#c9c3b6", C_HAUT = "#d6d1c6", C_COL = "#b5ad9f";
+const N_SRC = "Cote publiée dans le catalogue Mobalpa 2024 (détail des prix, p. 192).";
+const N_EST = "Largeurs estimées sur la grille standard : Mobalpa ne publie pas la grille complète des modules.";
+
+function mbEntry(o) {
+  return {
+    id: o.id, name: o.name, group: o.group, band: o.band, symbol: null, color: o.color, height: o.height, yOffset: o.yOffset || 0,
+    depthMin: o.dMin ?? o.d, depthMax: o.dMax ?? o.d, depthStep: o.dStep || 0, defaultDepth: o.d,
+    widthMin: o.wMin, widthMax: o.wMax, widthStep: o.wStep || 0, defaultWidth: o.wDef,
+    roundable: o.roundable, parts: o.parts, note: o.note,
+  };
+}
+const MOBALPA_CATALOG = [
+  // --- Bas : caisson 82,8 + socle 5, profondeur 60 (plan de travail en sus, voir "Plans & finitions") ---
+  mbEntry({ id: "mb-bas-1p", name: "Bas 1 porte", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 30, wMax: 60, wStep: 10, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS }), note: `60 × 60 × 82,8 cm (1 porte, 2 étagères). ${N_SRC} Autres largeurs : ${N_EST}` }),
+  mbEntry({ id: "mb-bas-2p", name: "Bas 2 portes", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 80, wMax: 120, wStep: 10, wDef: 90,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, cols: 2 }), note: N_EST }),
+  mbEntry({ id: "mb-bas-3t", name: "Bas 2 tiroirs + casserolier", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 60, wMax: 120, wStep: 30, wDef: 90,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, rows: [1, 1, 2] }), note: `90 et 120 × 60 × 82,8 cm (2 tiroirs + 1 coulissant). ${N_SRC}` }),
+  mbEntry({ id: "mb-bas-casserolier", name: "Casserolier 3 tiroirs", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 40, wMax: 80, wStep: 10, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, rows: [1, 1, 1] }), note: N_EST }),
+  mbEntry({ id: "mb-bas-evier", name: "Bas sous évier", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 60, wMax: 120, wStep: 10, wDef: 80,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, cols: w >= 80 ? 2 : 1 }), note: `60 × 60 × 82,8 cm avec poubelle coulissante, fond réduit. ${N_SRC} Autres largeurs : ${N_EST}` }),
+  mbEntry({ id: "mb-bas-poubelle", name: "Bas poubelles coulissant", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 30, wMax: 60, wStep: 10, wDef: 40,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, rows: [1, 2] }), note: N_EST }),
+  mbEntry({ id: "mb-bas-epices", name: "Coulissant à épices", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 15, wMax: 30, wStep: 5, wDef: 20,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS }), note: N_EST }),
+  mbEntry({ id: "mb-bas-lv", name: "Bas lave-vaisselle intégrable", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 60, wMax: 60, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS }), note: `Porte d'appareil intégré 60 × 79,7 cm. ${N_SRC}` }),
+  mbEntry({ id: "mb-bas-four", name: "Bas four encastrable + tiroir", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 60, wMin: 60, wMax: 60, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_BAS_BODY, color: C_BAS, rows: [1, -2] }), note: "Proportions estimées (tiroir bas, niche four au-dessus)." }),
+  mbEntry({ id: "mb-bas-angle", name: "Bas d'angle en L", group: G_BAS, band: "floor", color: C_BAS, height: MB_BAS_H, d: 90, wMin: 90, wMax: 90, wDef: 90,
+    parts: (w, d) => mbCornerL({ w, d, leg: 60, bodyH: MB_BAS_BODY, color: C_BAS }), note: "Hauteur 82,8 cm publiée ; emprise 90 × 90 (branches de 60) estimée. Le plan 2D affiche le carré d'emprise." }),
+  // --- Hauts : alignés en haut à 220 cm, profondeur 36 ---
+  mbEntry({ id: "mb-haut-abattant", name: "Haut abattant", group: G_HAUT, band: "wall", color: C_HAUT, height: 41.4, yOffset: 220 - 41.4, d: 36, wMin: 60, wMax: 120, wStep: 10, wDef: 120,
+    parts: (w, d) => mbUnit({ w, d, plinth: 0, bodyH: 41.4, color: C_HAUT, handle: "h", low: true }), note: `120 × 36 × 41,4 cm, porte relevable, fond en retrait. ${N_SRC} Autres largeurs : ${N_EST}` }),
+  mbEntry({ id: "mb-haut-2p", name: "Haut 2 portes", group: G_HAUT, band: "wall", color: C_HAUT, height: 70, yOffset: 150, d: 36, wMin: 60, wMax: 120, wStep: 10, wDef: 80,
+    parts: (w, d) => mbUnit({ w, d, plinth: 0, bodyH: 70, color: C_HAUT, cols: w >= 70 ? 2 : 1, low: true }), note: `Hauteur 70 cm estimée (sommet à 220 cm, hauteur max. de tablette citée par Mobalpa). ${N_EST}` }),
+  mbEntry({ id: "mb-haut-1p", name: "Haut 1 porte", group: G_HAUT, band: "wall", color: C_HAUT, height: 70, yOffset: 150, d: 36, wMin: 30, wMax: 60, wStep: 10, wDef: 40,
+    parts: (w, d) => mbUnit({ w, d, plinth: 0, bodyH: 70, color: C_HAUT, low: true }), note: `Hauteur 70 cm estimée. ${N_EST}` }),
+  mbEntry({ id: "mb-haut-ouvert", name: "Étagère ouverte", group: G_HAUT, band: "wall", color: C_HAUT, height: 35, yOffset: 185, d: 30, wMin: 30, wMax: 90, wStep: 10, wDef: 60,
+    parts: (w, d) => mbOpenShelf({ w, d, h: 35, color: C_HAUT }), note: "Dimensions estimées." }),
+  mbEntry({ id: "mb-haut-angle", name: "Haut d'angle en L", group: G_HAUT, band: "wall", color: C_HAUT, height: 70, yOffset: 150, d: 60, wMin: 60, wMax: 60, wDef: 60,
+    parts: (w, d) => mbCornerL({ w, d, leg: 36, plinth: 0, bodyH: 70, color: C_HAUT, low: true }), note: "Dimensions estimées (branches de 36)." }),
+  mbEntry({ id: "mb-fileur-haut", name: "Fileur haut", group: G_HAUT, band: "wall", color: C_HAUT, height: 41.4, yOffset: 220 - 41.4, d: 36, wMin: 5, wMax: 5, wDef: 5, note: `5 × 41,4 cm. ${N_SRC}` }),
+  // --- Colonnes : caisson 207 + socle 5, profondeur 60 ---
+  mbEntry({ id: "mb-col-2p", name: "Colonne 2 portes", group: G_COL, band: "floor", color: C_COL, height: MB_COL_H, d: 60, wMin: 30, wMax: 60, wStep: 10, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_COL_BODY, color: C_COL, rows: [3, 2], handle: "v" }), note: `60 × 60 × 207 cm (rangement 5 étagères, ou intégration électroménager, capacité 203,3 cm). ${N_SRC} Autres largeurs : ${N_EST}` }),
+  mbEntry({ id: "mb-col-four", name: "Colonne four + micro-ondes (niche 98,5)", group: G_COL, band: "floor", color: C_COL, height: MB_COL_H, d: 60, wMin: 60, wMax: 60, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_COL_BODY, color: C_COL, rows: [35, -98.5, 68] }), note: `Colonne 60 × 60 × 207 cm pour appareils encastrés de 98,5 cm. ${N_SRC} Répartition des façades estimée.` }),
+  mbEntry({ id: "mb-col-frigo", name: "Colonne réfrigérateur intégrable", group: G_COL, band: "floor", color: C_COL, height: MB_COL_H, d: 60, wMin: 60, wMax: 60, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_COL_BODY, color: C_COL, rows: [80, 98, 25] }), note: "Niche de 178 cm usuelle, estimée." }),
+  mbEntry({ id: "mb-col-etroite", name: "Colonne étroite coulissante", group: G_COL, band: "floor", color: C_COL, height: MB_COL_H, d: 60, wMin: 15, wMax: 45, wStep: 5, wDef: 30,
+    parts: (w, d) => mbUnit({ w, d, bodyH: MB_COL_BODY, color: C_COL, handle: "v" }), note: N_EST }),
+  // --- Plans de travail et finitions ---
+  mbEntry({ id: "mb-pdt-39", name: "Plan de travail stratifié ép. 3,9", group: G_FIN, band: "floor", color: "#d9d6cf", height: 3.9, yOffset: MB_BAS_H, d: 60, dMin: 60, dMax: 90, dStep: 5, wMin: 100, wMax: 300, wStep: 10, wDef: 180, roundable: true,
+    note: `Stratifié 3,9 cm (180 × 90 cm publié). ${N_SRC} Posé sur caisson + socle (87,8 cm) : dessus à 91,7 cm.` }),
+  mbEntry({ id: "mb-pdt-18", name: "Plan de travail ép. 1,8 (gorge)", group: G_FIN, band: "floor", color: "#d9d6cf", height: 1.8, yOffset: MB_BAS_H, d: 60.5, wMin: 100, wMax: 300, wStep: 10, wDef: 270, roundable: true,
+    note: `Plan à gorge 1,8 cm (277 × 60,5 et 156,5 × 60,5 cm publiés). ${N_SRC}` }),
+  mbEntry({ id: "mb-joue", name: "Joue de finition bas", group: G_FIN, band: "floor", color: C_BAS, height: 90.3, d: 60.5, wMin: 1.8, wMax: 1.8, wDef: 1.8, note: `Joue 60,5 × 90,3 cm, ép. 1,8 cm. ${N_SRC}` }),
+];
+
 const CATALOG = [
   // --- Cuisine — Meubles ---
   { id: "base-cabinet", name: "Meuble bas", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#3b6ea5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 30, widthMax: 120, widthStep: 5, defaultWidth: 60 },
@@ -45,9 +179,10 @@ const CATALOG = [
   { id: "desk", name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
   { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
   { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
+  ...MOBALPA_CATALOG,
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
-const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
+const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", G_BAS, G_HAUT, G_COL, G_FIN, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
 
 const DEFAULT_VERTICES = [
   { x: 280, y: -140 }, { x: 460, y: -140 }, { x: 460, y: 320 },
@@ -496,6 +631,11 @@ function buildBoxArrays(w, h, d) {
   ]);
   return { positions, normals, indices };
 }
+// Boîtes (repère de l'objet) d'un objet placé : ses "parts" si le catalogue en définit, sinon une boîte unique.
+function itemBoxes(item) {
+  const e = item.catalogEntry;
+  return e.parts ? e.parts(item.width, item.depth) : [mbBox(0, 0, 0, item.width, e.height, item.depth, e.color)];
+}
 function hexToRgb01(hex) {
   const n = parseInt(hex.replace("#", ""), 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
@@ -511,8 +651,10 @@ function exportGLTF(items) {
   const materialIndexByColor = {};
 
   items.forEach((item, i) => {
-    const wM = item.width / 100, hM = item.catalogEntry.height / 100, dM = item.depth / 100;
-    const { positions, normals, indices } = buildBoxArrays(wM, hM, dM);
+    const primitives = [];
+    itemBoxes(item).forEach((box) => {
+    const { positions, normals, indices } = buildBoxArrays(box.w / 100, box.h / 100, box.d / 100);
+    for (let v = 0; v < positions.length; v += 3) { positions[v] += box.x / 100; positions[v + 1] += box.y / 100; positions[v + 2] += box.z / 100; }
 
     const posBytes = new Uint8Array(positions.buffer);
     bufferViews.push({ buffer: 0, byteOffset, byteLength: posBytes.length, target: 34962 });
@@ -537,12 +679,14 @@ function exportGLTF(items) {
     accessors.push({ bufferView: idxViewIdx, componentType: 5123, count: indices.length, type: "SCALAR" });
     const idxAcc = accessors.length - 1;
 
-    const color = item.catalogEntry.color;
+    const color = box.color;
     if (!(color in materialIndexByColor)) {
       materials.push({ name: item.catalogEntry.name, pbrMetallicRoughness: { baseColorFactor: [...hexToRgb01(color), 1], metallicFactor: 0.05, roughnessFactor: 0.8 } });
       materialIndexByColor[color] = materials.length - 1;
     }
-    meshes.push({ name: `${item.catalogEntry.name}_${i}`, primitives: [{ attributes: { POSITION: posAcc, NORMAL: normAcc }, indices: idxAcc, material: materialIndexByColor[color] }] });
+    primitives.push({ attributes: { POSITION: posAcc, NORMAL: normAcc }, indices: idxAcc, material: materialIndexByColor[color] });
+    });
+    meshes.push({ name: `${item.catalogEntry.name}_${i}`, primitives });
 
     const half = item.angleRad / 2;
     nodes.push({ name: `${item.catalogEntry.name}_${i}`, mesh: meshes.length - 1, translation: [item.centerX / 100, item.catalogEntry.yOffset / 100, item.centerY / 100], rotation: [0, Math.sin(half), 0, Math.cos(half)] });
@@ -1074,16 +1218,21 @@ export default function KitchenDesigner() {
   useEffect(() => {
     const t = three.current;
     if (!t) return;
-    t.group.children.forEach((c) => { c.geometry?.dispose(); c.material?.dispose(); });
+    t.group.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
     t.group.clear();
     roomItemsComputed.forEach((item) => {
-      const wM = item.width / 100, hM = item.catalogEntry.height / 100, dM = item.depth / 100;
-      const geo = new THREE.BoxGeometry(wM, hM, dM);
-      const mat = new THREE.MeshStandardMaterial({ color: item.catalogEntry.color, roughness: 0.8, metalness: 0.05 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.rotation.y = item.angleRad;
-      mesh.position.set(item.centerX / 100, item.catalogEntry.yOffset / 100 + hM / 2, item.centerY / 100);
-      t.group.add(mesh);
+      const holder = new THREE.Group();
+      holder.rotation.y = item.angleRad;
+      holder.position.set(item.centerX / 100, item.catalogEntry.yOffset / 100, item.centerY / 100);
+      itemBoxes(item).forEach((b) => {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(b.w / 100, b.h / 100, b.d / 100),
+          new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.8, metalness: 0.05 }),
+        );
+        mesh.position.set(b.x / 100, (b.y + b.h / 2) / 100, b.z / 100);
+        holder.add(mesh);
+      });
+      t.group.add(holder);
     });
     t.updateCamera();
   }, [roomItemsComputed, show3D]);
@@ -1579,7 +1728,7 @@ export default function KitchenDesigner() {
                 <div key={g}>
                   <div className="section-label">{g}</div>
                   {CATALOG.filter((c) => c.group === g).map((c) => (
-                    <div className="catalog-item" key={c.id}>
+                    <div className="catalog-item" key={c.id} title={c.note}>
                       <div className="swatch" style={{ background: c.color }} />
                       <div className="meta">
                         <div className="name">{c.name}</div>
