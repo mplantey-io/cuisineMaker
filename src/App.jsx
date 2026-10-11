@@ -479,8 +479,10 @@ function buildFloorPatternDefString(id, floor) {
 }
 // --- géométrie d'un objet à partir de x, y, angle (tout est libre) ---
 function computeItemGeometry(item) {
-  const entry = catalogById[item.catalogId];
+  let entry = catalogById[item.catalogId];
   if (!entry) return null;
+  // Plateau réglé en hauteur (table) : on décale le plateau et on lui ajoute des pieds.
+  if (typeof item.topHeight === "number" && isWorktop(entry)) entry = { ...entry, yOffset: Math.max(0, item.topHeight - entry.height), withLegs: true };
   const rad = ((item.angleDeg || 0) * Math.PI) / 180;
   const u = { x: Math.cos(rad), y: Math.sin(rad) };
   const v = { x: -Math.sin(rad), y: Math.cos(rad) };
@@ -750,7 +752,13 @@ function worktopBoxes(item, all) {
     const hole = aabbLocal(item, f.corners);
     rects = rects.flatMap((r) => subtractRect(r, hole));
   });
-  return rects.map((r) => mbBox((r.x0 + r.x1) / 2, 0, (r.z0 + r.z1) / 2, r.x1 - r.x0, e.height, r.z1 - r.z0, e.color));
+  const boxes = rects.map((r) => mbBox((r.x0 + r.x1) / 2, 0, (r.z0 + r.z1) / 2, r.x1 - r.x0, e.height, r.z1 - r.z0, e.color));
+  if (e.withLegs && e.yOffset > 1) {
+    const inset = Math.min(6, item.width / 4, item.depth / 4), lw = 5;
+    [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => boxes.push(
+      mbBox(sx * (item.width / 2 - inset), -e.yOffset, sz * (item.depth / 2 - inset), lw, e.yOffset, lw, e.color))));
+  }
+  return boxes;
 }
 function cutoutBoxes(item, all) {
   const e = item.catalogEntry, w = item.width, d = item.depth;
@@ -1199,6 +1207,7 @@ function normalizeProject(p) {
         depth: typeof it.depth === "number" ? it.depth : catalogById[it.catalogId].defaultDepth,
         angleDeg: typeof it.angleDeg === "number" ? it.angleDeg : 0,
         radii: Array.isArray(it.radii) ? it.radii : [0, 0, 0, 0],
+        ...(typeof it.topHeight === "number" ? { topHeight: it.topHeight } : {}),
       }));
     return { id: p.id || uid(), name: p.name || "Projet", savedAt: p.savedAt || new Date().toISOString(), rooms: finalRooms, items };
   }
@@ -2296,6 +2305,16 @@ export default function KitchenDesigner() {
                     <label>Angle (°)</label>
                     <input type="number" value={raw.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
                   </div>
+                  {isWorktop(e) && (
+                    <div className="field" style={{ margin: "8px 0 0" }}>
+                      <label>Hauteur du dessus (cm) — 75 pour une table, pieds ajoutés</label>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <DimInput value={item.catalogEntry.yOffset + item.catalogEntry.height} onCommit={(n) => updateItem(item.uid, { topHeight: Math.max(e.height, n) })} />
+                        <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: 75 }); }}>Table</button>
+                        <button className="btn" disabled={typeof raw.topHeight !== "number"} onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: undefined }); }}>Standard</button>
+                      </div>
+                    </div>
+                  )}
                   {e.roundable && (
                     <div className="field radii-grid" style={{ margin: "8px 0 0" }}>
                       <label>Rayon des coins (cm) — pousse les 4 au max pour approcher un rond</label>
