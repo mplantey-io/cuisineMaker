@@ -1838,7 +1838,22 @@ export default function KitchenDesigner() {
   // --- étapes : "plan" = murs, portes, fenêtres, réseaux ; "meubles" = tout le reste ---
   function switchMode(m) {
     setMode(m);
+    if (m === "3d") setShow3D(true);
     setSelectedUid(null); setSelectedWallIndex(null); setWallEditIndex(null);
+  }
+  // Image de la vue 3D telle qu'affichée (caméra courante) : rendu puis lecture immédiate du canvas.
+  function exportView3DPNG() {
+    const t = three.current;
+    if (!t) return;
+    t.renderer.render(t.scene, t.camera);
+    t.renderer.domElement.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `vue3d_${timestamp()}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, "image/png");
   }
   function closeMenu(e) {
     const d = e.currentTarget.closest("details");
@@ -1915,6 +1930,11 @@ export default function KitchenDesigner() {
         .wall-edit-input { position:absolute; transform:translate(-50%,-50%); width:64px; font-family:'IBM Plex Mono',monospace; font-size:12px; text-align:center; padding:3px 4px; border:1.5px solid #e2711d; border-radius:3px; background:#fff; color:#1d2733; z-index:5; }
         .viewer3d-bar { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-bottom:1px solid #d7dde3; }
         .viewer3d-wrap { height:320px; }
+        .body.is3d .sidebar, .body.is3d .sidebar-right, .body.is3d .editor2d-wrap, .body.is3d .footer-hint { display:none; }
+        .body.is3d .main { min-height:0; }
+        .body.is3d .viewer3d-wrap { position:relative; flex:1; height:calc(100vh - 130px); min-height:60vh; }
+        @media (max-width: 860px) { .body.is3d .viewer3d-wrap { height:calc(100vh - 230px); } }
+        .body.is3d .viewer3d-wrap > div { position:absolute; inset:0; height:auto; }
         .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; touch-action:none; }
         .dim-text { font-family:'IBM Plex Mono',monospace; fill:#1f6f93; }
         .footer-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; padding:8px 12px; border-bottom:1px solid #d7dde3; }
@@ -1984,6 +2004,7 @@ export default function KitchenDesigner() {
         <div className="steps">
           <button className={`step ${mode === "plan" ? "active" : ""}`} onClick={() => switchMode("plan")}><b>1</b>Plan</button>
           <button className={`step ${mode === "meubles" ? "active" : ""}`} onClick={() => switchMode("meubles")}><b>2</b>Meubles</button>
+          <button className={`step ${mode === "3d" ? "active" : ""}`} onClick={() => switchMode("3d")}><b>3</b>3D</button>
         </div>
         <div className="header-right">
           <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={handleImportFile} />
@@ -2012,6 +2033,7 @@ export default function KitchenDesigner() {
               <button onClick={() => exportFloorPlanSVG(rooms, items)}>Plan pro (SVG)</button>
               <button onClick={() => exportMaterialsCSV(rooms, items)} disabled={items.length === 0}>Liste de matériel (CSV)</button>
               <button onClick={() => exportGLTF(roomItemsComputed, "glb")} disabled={roomItemsComputed.length === 0}>Modèle 3D (GLB)</button>
+              <button onClick={exportView3DPNG} disabled={!show3D}>Vue 3D en cours (PNG)</button>
               <button onClick={() => exportGLTF(roomItemsComputed)} disabled={roomItemsComputed.length === 0}>Modèle 3D (GLTF)</button>
             </div>
           </details>
@@ -2019,7 +2041,7 @@ export default function KitchenDesigner() {
       </div>
       {importError && <div className="warning" style={{ margin: "8px 18px 0" }}>{importError}</div>}
 
-      <div className="body">
+      <div className={`body ${mode === "3d" ? "is3d" : ""}`}>
         <div className="sidebar">
           <div className="panel">
             <div className="section-label">Pièce</div>
@@ -2231,7 +2253,9 @@ export default function KitchenDesigner() {
           </div>
           <div className="viewer3d-bar">
             <div className="section-label" style={{ padding: 0 }}>{show3D ? "Vue 3D — glisser pour orbiter, molette/pincer pour zoomer" : "Vue 3D masquée"}</div>
-            <button className="btn" onClick={() => setShow3D((v) => !v)}>{show3D ? "Masquer la 3D" : "Afficher la 3D"}</button>
+            {mode === "3d"
+              ? <button className="btn primary" onClick={exportView3DPNG}>Exporter la vue (PNG)</button>
+              : <button className="btn" onClick={() => setShow3D((v) => !v)}>{show3D ? "Masquer la 3D" : "Afficher la 3D"}</button>}
           </div>
           {show3D && <div className="viewer3d-wrap"><div ref={containerRef} /></div>}
         </div>
