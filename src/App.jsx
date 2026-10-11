@@ -183,6 +183,9 @@ const CATALOG = [
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
 const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", G_BAS, G_HAUT, G_COL, G_FIN, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
+const PLAN_GROUPS = ["Ouvertures", "Réseaux"];
+const FURNITURE_GROUPS = GROUPS.filter((g) => !PLAN_GROUPS.includes(g));
+const isPlanEntry = (entry) => PLAN_GROUPS.includes(entry.group);
 
 const DEFAULT_VERTICES = [
   { x: 280, y: -140 }, { x: 460, y: -140 }, { x: 460, y: 320 },
@@ -1016,7 +1019,8 @@ export default function KitchenDesigner() {
   const [selectedWallIndex, setSelectedWallIndex] = useState(null);
   const [wallEditIndex, setWallEditIndex] = useState(null);
   const [wallEditPos, setWallEditPos] = useState(null);
-  const [tab, setTab] = useState("room");
+  const [mode, setMode] = useState("plan"); // "plan" (murs, ouvertures) | "meubles"
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [show3D, setShow3D] = useState(false);
   const [importError, setImportError] = useState("");
 
@@ -1037,6 +1041,7 @@ export default function KitchenDesigner() {
 
   const roomItems = useMemo(() => items.filter((it) => it.roomId === activeRoomId), [items, activeRoomId]);
   const roomItemsComputed = useMemo(() => roomItems.map(computeItemGeometry).filter(Boolean), [roomItems]);
+  const visibleItems = useMemo(() => roomItemsComputed.filter((it) => isPlanEntry(it.catalogEntry) === (mode === "plan")), [roomItemsComputed, mode]);
 
   const bounds = useMemo(() => {
     if (!activeRoom) return { minX: 0, minY: 0, w: 400, h: 400 };
@@ -1533,6 +1538,30 @@ export default function KitchenDesigner() {
     e.target.value = "";
   }
 
+  // --- étapes : "plan" = murs, portes, fenêtres, réseaux ; "meubles" = tout le reste ---
+  function switchMode(m) {
+    setMode(m);
+    setSelectedUid(null); setSelectedWallIndex(null); setWallEditIndex(null);
+  }
+  function closeMenu(e) {
+    const d = e.currentTarget.closest("details");
+    if (d) d.open = false;
+  }
+  useEffect(() => {
+    if (selectedUid) document.getElementById(`row-${selectedUid}`)?.scrollIntoView({ block: "nearest" });
+  }, [selectedUid]);
+  const catalogQ = catalogQuery.trim().toLowerCase();
+  const renderCatalogRow = (c) => (
+    <div className="catalog-item compact" key={c.id} title={c.note} onClick={() => addItem(c.id)}>
+      <div className="swatch" style={{ background: c.color }} />
+      <div className="meta">
+        <div className="name">{c.name}</div>
+        <div className="dims">{c.widthMin === c.widthMax ? `${c.defaultWidth}` : `${c.widthMin}–${c.widthMax}`}×{c.depthMin === c.depthMax ? `${c.defaultDepth}` : `${c.depthMin}–${c.depthMax}`} cm</div>
+      </div>
+      <span className="add">+</span>
+    </div>
+  );
+
   const selectedEntry = selectedUid ? catalogById[items.find((it) => it.uid === selectedUid)?.catalogId] : null;
 
   return (
@@ -1596,6 +1625,38 @@ export default function KitchenDesigner() {
         .radii-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
         .radii-grid label { grid-column:1 / -1; }
 
+        .header { gap:12px; padding:10px 18px; position:relative; }
+        .header .select { width:auto; min-width:140px; max-width:220px; padding:6px 8px; }
+        .header-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .steps { display:flex; gap:4px; background:#eef1f4; padding:3px; border-radius:6px; }
+        .step { font-family:'IBM Plex Mono',monospace; font-size:12px; border:none; background:none; padding:7px 16px; border-radius:4px; cursor:pointer; color:#6b7789; }
+        .step b { display:inline-block; width:18px; height:18px; line-height:18px; border-radius:50%; background:#c7d0d9; color:#fff; font-size:11px; text-align:center; margin-right:6px; }
+        .step.active { background:#ffffff; color:#1d2733; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.14); }
+        .step.active b { background:#e2711d; }
+        .menu { position:relative; }
+        .menu > summary { list-style:none; }
+        .menu > summary::-webkit-details-marker { display:none; }
+        .menu-list { position:absolute; right:0; top:calc(100% + 4px); background:#ffffff; border:1px solid #c7d0d9; border-radius:4px; box-shadow:0 6px 18px rgba(0,0,0,.14); z-index:20; min-width:210px; display:flex; flex-direction:column; padding:4px; }
+        .menu-list button { text-align:left; border:none; background:none; padding:8px 10px; font-family:'IBM Plex Mono',monospace; font-size:12px; cursor:pointer; border-radius:3px; color:#1d2733; }
+        .menu-list button:hover:not(:disabled) { background:#eef1f4; color:#1f6f93; }
+        .menu-list button:disabled { opacity:.4; cursor:default; }
+        .menu-list hr { border:none; border-top:1px solid #e3e7ec; margin:4px 0; width:100%; }
+        .menu-note { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8b96a3; padding:6px 10px 4px; }
+        .panel-title { padding:11px 16px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; color:#1f6f93; border-bottom:1px solid #d7dde3; }
+        .sub-label { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8b96a3; margin:8px 0 4px; }
+        .field-row { display:flex; gap:10px; }
+        .field-row > .field { flex:1; margin-bottom:6px; }
+        .stat { font-family:'IBM Plex Mono',monospace; font-size:13px; padding:7px 0; }
+        .fold { border-top:1px solid #e3e7ec; margin-top:12px; }
+        .fold > summary { cursor:pointer; padding:10px 0; font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#1f6f93; display:flex; align-items:center; gap:6px; }
+        .fold[open] > summary { padding-bottom:8px; }
+        .fold .count { font-size:10px; color:#8b96a3; background:#eef1f4; border-radius:8px; padding:1px 7px; }
+        .search { width:100%; box-sizing:border-box; background:#ffffff; border:1px solid #c7d0d9; padding:8px 10px; border-radius:3px; font-family:'IBM Plex Mono',monospace; font-size:12px; margin-bottom:4px; }
+        .catalog-item.compact { padding:6px 8px; margin-bottom:4px; gap:8px; cursor:pointer; }
+        .catalog-item.compact:hover { border-color:#1f6f93; background:#f5fafc; }
+        .catalog-item .add { color:#1f6f93; font-family:'IBM Plex Mono',monospace; font-size:16px; line-height:1; padding:0 4px; }
+        .next-btn { width:100%; margin-top:18px; padding:10px; }
+        .layout-row .top { cursor:pointer; }
         @media (max-width: 860px) {
           .app { min-height: 100vh; height: auto; }
           .body { flex-direction: column; }
@@ -1605,6 +1666,11 @@ export default function KitchenDesigner() {
           .header { padding: 10px 12px; }
           .header h1 { font-size: 13px; }
           .header .sub { font-size: 10px; }
+          .header { gap: 8px; }
+          .steps { order: 3; width: 100%; }
+          .step { flex: 1; }
+          .menu { position: static; }
+          .menu-list { left: 12px; right: 12px; top: auto; margin-top: 4px; }
           .btn { font-size: 11px; padding: 6px 8px; }
           .editor2d-wrap { min-height: 260px; }
           .viewer3d-wrap { height: 260px; }
@@ -1617,63 +1683,90 @@ export default function KitchenDesigner() {
       `}</style>
 
       <div className="header">
-        <div>
-          <h1>Atelier Appartement</h1>
-          <div className="sub">prototype paramétrique — v1.0 · plusieurs pièces, placement libre, 3D à la demande</div>
+        <h1>Atelier Appartement</h1>
+        <div className="steps">
+          <button className={`step ${mode === "plan" ? "active" : ""}`} onClick={() => switchMode("plan")}><b>1</b>Plan</button>
+          <button className={`step ${mode === "meubles" ? "active" : ""}`} onClick={() => switchMode("meubles")}><b>2</b>Meubles</button>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="header-right">
           <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={handleImportFile} />
-          <button className="btn" onClick={triggerImport}>Importer un projet</button>
-          <button className="btn" onClick={resetAll}>Réinitialiser</button>
-          <button className="btn" onClick={handleExportProject}>Exporter projet (JSON)</button>
-          <button className="btn" onClick={() => exportMaterialsCSV(rooms, items)} disabled={items.length === 0}>Liste de matériel (CSV)</button>
-          <button className="btn" onClick={() => exportFloorPlanSVG(rooms, items)}>Plan pro (SVG)</button>
-          <button className="btn primary" onClick={() => exportGLTF(roomItemsComputed)} disabled={roomItemsComputed.length === 0}>Export 3D (GLTF)</button>
+          <select className="select" value={activeProjectId} onChange={(e) => switchProject(e.target.value)}>
+            {Object.values(projects).sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <details className="menu">
+            <summary className="btn">Projet ▾</summary>
+            <div className="menu-list" onClick={closeMenu}>
+              <button onClick={createNewProject}>Nouveau projet</button>
+              <button onClick={renameActiveProject}>Renommer</button>
+              <button onClick={deleteActiveProject} disabled={Object.keys(projects).length <= 1}>Supprimer</button>
+              <hr />
+              <button onClick={triggerImport}>Importer (JSON)</button>
+              <button onClick={handleExportProject}>Exporter (JSON)</button>
+              <hr />
+              <button onClick={() => { if (window.confirm("Réinitialiser le projet actif ? Les pièces et objets seront effacés.")) resetAll(); }}>Réinitialiser</button>
+              <div className="menu-note">Enregistré automatiquement dans ce navigateur</div>
+            </div>
+          </details>
+          <details className="menu">
+            <summary className="btn primary">Exporter ▾</summary>
+            <div className="menu-list" onClick={closeMenu}>
+              <button onClick={() => exportFloorPlanSVG(rooms, items)}>Plan pro (SVG)</button>
+              <button onClick={() => exportMaterialsCSV(rooms, items)} disabled={items.length === 0}>Liste de matériel (CSV)</button>
+              <button onClick={() => exportGLTF(roomItemsComputed)} disabled={roomItemsComputed.length === 0}>Modèle 3D (GLTF)</button>
+            </div>
+          </details>
         </div>
-      </div>
-
-      <div className="project-bar">
-        <label>Projet</label>
-        <select className="select" value={activeProjectId} onChange={(e) => switchProject(e.target.value)}>
-          {Object.values(projects).sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-        <button className="btn" onClick={createNewProject}>+ Nouveau</button>
-        <button className="btn" onClick={renameActiveProject}>Renommer</button>
-        <button className="btn" onClick={deleteActiveProject} disabled={Object.keys(projects).length <= 1}>Supprimer</button>
-        <span className="autosave-hint">Enregistré automatiquement dans ce navigateur</span>
       </div>
       {importError && <div className="warning" style={{ margin: "8px 18px 0" }}>{importError}</div>}
 
       <div className="body">
         <div className="sidebar">
-          <div className="tabs">
-            <button className={`tab ${tab === "room" ? "active" : ""}`} onClick={() => setTab("room")}>Pièce</button>
-            <button className={`tab ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}>Catalogue</button>
-          </div>
+          <div className="panel">
+            <div className="section-label">Pièce</div>
+            <div className="room-row">
+              <select className="select" value={activeRoomId} onChange={(e) => setActiveRoomId(e.target.value)}>
+                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            {mode === "plan" && activeRoom && (
+              <>
+                <div className="row-actions" style={{ marginTop: -4 }}>
+                  <button className="btn" onClick={addRoom}>+ Nouvelle pièce</button>
+                  <button className="btn" onClick={renameRoom}>Renommer</button>
+                  <button className="btn" onClick={deleteRoom} disabled={rooms.length <= 1}>Supprimer</button>
+                </div>
+                <div className="field-row" style={{ marginTop: 12 }}>
+                  <div className="field">
+                    <label>Hauteur (cm)</label>
+                    <input type="number" value={activeRoom.height} onChange={(e) => updateRoomHeight(Number(e.target.value) || 0)} />
+                  </div>
+                  <div className="field"><label>Surface</label><div className="stat">{roomArea} m²</div></div>
+                </div>
 
-          {tab === "room" && activeRoom && (
-            <div className="panel">
-              <div className="section-label">Pièce active</div>
-              <div className="room-row">
-                <select className="select" value={activeRoomId} onChange={(e) => setActiveRoomId(e.target.value)}>
-                  {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </div>
-              <div className="row-actions" style={{ marginTop: -4, marginBottom: 14 }}>
-                <button className="btn" onClick={addRoom}>+ Nouvelle pièce</button>
-                <button className="btn" onClick={renameRoom}>Renommer</button>
-                <button className="btn" onClick={deleteRoom} disabled={rooms.length <= 1}>Supprimer</button>
-              </div>
+                <div className="section-label">Ajouter une ouverture</div>
+                {PLAN_GROUPS.map((g) => (
+                  <div key={g}>
+                    <div className="sub-label">{g}</div>
+                    {CATALOG.filter((c) => c.group === g).map(renderCatalogRow)}
+                  </div>
+                ))}
 
-              <div className="field">
-                <label>Hauteur sous plafond (cm)</label>
-                <input type="number" value={activeRoom.height} onChange={(e) => updateRoomHeight(Number(e.target.value) || 0)} />
-              </div>
-              <div className="field"><label>Surface</label><div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 13 }}>{roomArea} m²</div></div>
-
-              <div className="section-label">Revêtement de sol</div>
+                <details className="fold">
+                  <summary>Murs — coordonnées des sommets</summary>
+              {activeRoom.vertices.map((v, i) => (
+                <div className="vertex-row" key={i}>
+                  <span className="vlabel">P{i + 1}</span>
+                  <input type="number" value={v.x} onChange={(e) => updateVertex(i, "x", Number(e.target.value) || 0)} />
+                  <input type="number" value={v.y} onChange={(e) => updateVertex(i, "y", Number(e.target.value) || 0)} />
+                  <button className="btn" onClick={() => removeVertex(i)} disabled={activeRoom.vertices.length <= 3}>×</button>
+                </div>
+              ))}
+              <button className="btn" style={{ width: "100%", marginTop: 4 }} onClick={addVertex}>+ Ajouter un sommet</button>
+                </details>
+                <details className="fold">
+                  <summary>Revêtement de sol</summary>
               <div className="field">
                 <label>Motif</label>
                 <select className="select" value={(activeRoom.floor || DEFAULT_FLOOR).type} onChange={(e) => updateRoomFloor({ type: e.target.value })}>
@@ -1708,46 +1801,34 @@ export default function KitchenDesigner() {
                   </div>
                 </>
               )}
-
-              <div className="section-label">Sommets du polygone</div>
-              {activeRoom.vertices.map((v, i) => (
-                <div className="vertex-row" key={i}>
-                  <span className="vlabel">P{i + 1}</span>
-                  <input type="number" value={v.x} onChange={(e) => updateVertex(i, "x", Number(e.target.value) || 0)} />
-                  <input type="number" value={v.y} onChange={(e) => updateVertex(i, "y", Number(e.target.value) || 0)} />
-                  <button className="btn" onClick={() => removeVertex(i)} disabled={activeRoom.vertices.length <= 3}>×</button>
-                </div>
-              ))}
-              <button className="btn" style={{ width: "100%", marginTop: 4 }} onClick={addVertex}>+ Ajouter un sommet</button>
-            </div>
-          )}
-
-          {tab === "catalog" && (
-            <div className="panel">
-              {GROUPS.map((g) => (
-                <div key={g}>
-                  <div className="section-label">{g}</div>
-                  {CATALOG.filter((c) => c.group === g).map((c) => (
-                    <div className="catalog-item" key={c.id} title={c.note}>
-                      <div className="swatch" style={{ background: c.color }} />
-                      <div className="meta">
-                        <div className="name">{c.name}</div>
-                        <div className="dims">{c.widthMin === c.widthMax ? `${c.defaultWidth}` : `${c.widthMin}–${c.widthMax}`}×{c.depthMin === c.depthMax ? `${c.defaultDepth}` : `${c.depthMin}–${c.depthMax}`} cm</div>
-                      </div>
-                      <button className="btn" onClick={() => addItem(c.id)}>+</button>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
+                </details>
+                <button className="btn primary next-btn" onClick={() => switchMode("meubles")}>Passer aux meubles →</button>
+              </>
+            )}
+            {mode === "meubles" && (
+              <>
+                <input className="search" type="search" placeholder="Rechercher un meuble…" value={catalogQuery} onChange={(e) => setCatalogQuery(e.target.value)} />
+                {FURNITURE_GROUPS.map((g) => {
+                  const entries = CATALOG.filter((c) => c.group === g && (!catalogQ || c.name.toLowerCase().includes(catalogQ)));
+                  if (entries.length === 0) return null;
+                  return (
+                    <details className="fold" key={g} open={catalogQ ? true : g === FURNITURE_GROUPS[0]}>
+                      <summary>{g} <span className="count">{entries.length}</span></summary>
+                      {entries.map(renderCatalogRow)}
+                    </details>
+                  );
+                })}
+                <button className="btn next-btn" onClick={() => switchMode("plan")}>← Modifier le plan</button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="main">
-          <div className="footer-hint">Points ambre = sommets de la pièce · murs = cliquer pour éditer la longueur, glisser pour déplacer · objets = glisser librement, ou saisir les coordonnées dans la liste à droite</div>
+          <div className="footer-hint">{mode === "plan" ? "Plan : glisse les points ambre pour déplacer un sommet · clique un mur pour éditer sa longueur · place portes et fenêtres depuis la liste de gauche" : "Meubles : glisse un meuble pour le placer · sélectionne-le pour régler ses dimensions à droite · murs et ouvertures verrouillés (étape 1 pour les modifier)"}</div>
           <div className="editor2d-wrap" ref={wrapRef}>
             <svg ref={svgRef} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.w} ${bounds.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ touchAction: "none" }}
-              onPointerDown={() => { setSelectedWallIndex(null); setWallEditIndex(null); }}>
+              onPointerDown={() => { setSelectedUid(null); setSelectedWallIndex(null); setWallEditIndex(null); }}>
               <defs>
                 <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                   <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e3e7ec" strokeWidth="0.5" />
@@ -1774,10 +1855,10 @@ export default function KitchenDesigner() {
                 const lx = midX + w.normal.x * 14, ly = midY + w.normal.y * 14;
                 const wallSelected = selectedWallIndex === i;
                 return (
-                  <g key={i} onPointerDown={(e) => onWallDown(i, e)} style={{ cursor: "pointer" }}>
+                  <g key={i} onPointerDown={mode === "plan" ? (e) => onWallDown(i, e) : undefined} style={{ cursor: mode === "plan" ? "pointer" : "default", pointerEvents: mode === "plan" ? undefined : "none" }}>
                     {/* zone de clic élargie, invisible, plus facile à viser que le trait fin */}
                     <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" />
-                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke={wallSelected ? "#e2711d" : "#1f6f93"} strokeWidth={wallSelected ? 3 : 1.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+                    <line x1={w.A.x} y1={w.A.y} x2={w.B.x} y2={w.B.y} stroke={wallSelected ? "#e2711d" : mode === "plan" ? "#1f6f93" : "#4b5b6e"} strokeWidth={wallSelected ? 3 : mode === "plan" ? 1.4 : 2.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
                     {wallEditIndex !== i && (
                       <text x={lx} y={ly} textAnchor="middle" className="dim-text" fontSize={wallSelected ? 8.5 : 7} fontWeight={wallSelected ? 700 : 400} pointerEvents="none">{w.length}</text>
                     )}
@@ -1788,10 +1869,11 @@ export default function KitchenDesigner() {
               {roomItemsComputed.map((item) => {
                 const selected = selectedUid === item.uid;
                 const band = item.catalogEntry.band;
+                const locked = isPlanEntry(item.catalogEntry) !== (mode === "plan");
                 if (item.catalogEntry.roundable) {
                   const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
                   return (
-                    <g key={item.uid} onPointerDown={(e) => onItemDown(item, e)} style={{ cursor: "grab" }}>
+                    <g key={item.uid} onPointerDown={locked ? undefined : (e) => onItemDown(item, e)} style={{ cursor: locked ? "default" : "grab", pointerEvents: locked ? "none" : undefined }} opacity={locked && mode === "plan" ? 0.25 : undefined}>
                       {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
                       <path d={d} fill={item.catalogEntry.color} opacity={selected ? 0.95 : 0.65} stroke={selected ? "#e2711d" : "#1d2733"} strokeWidth={selected ? 2.6 : 0.7} vectorEffect="non-scaling-stroke" />
                     </g>
@@ -1802,7 +1884,7 @@ export default function KitchenDesigner() {
                 const stroke = selected ? "#e2711d" : "#1d2733";
                 const pts = item.corners.map((c) => `${c.x},${c.y}`).join(" ");
                 return (
-                  <g key={item.uid} onPointerDown={(e) => onItemDown(item, e)} style={{ cursor: "grab" }}>
+                  <g key={item.uid} onPointerDown={locked ? undefined : (e) => onItemDown(item, e)} style={{ cursor: locked ? "default" : "grab", pointerEvents: locked ? "none" : undefined }} opacity={locked && mode === "plan" ? 0.25 : undefined}>
                     {selected && <polygon points={pts} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
                     <polygon points={pts} fill={item.catalogEntry.color} opacity={opacity} stroke={stroke} strokeWidth={selected ? 2.6 : 0.7} strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
                     <SymbolShapes item={item} />
@@ -1810,7 +1892,7 @@ export default function KitchenDesigner() {
                 );
               })}
 
-              {activeRoom && activeRoom.vertices.map((v, i) => (
+              {activeRoom && mode === "plan" && activeRoom.vertices.map((v, i) => (
                 <g key={i}>
                   <circle cx={v.x} cy={v.y} r={16} fill="transparent" style={{ cursor: "grab" }} onPointerDown={(e) => onVertexDown(i, e)} />
                   <circle cx={v.x} cy={v.y} r={7} fill="#ffffff" stroke="#e2711d" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
@@ -1845,18 +1927,23 @@ export default function KitchenDesigner() {
         </div>
 
         <div className="sidebar-right">
-          <div className="tabs"><div className="tab active" style={{ cursor: "default" }}>Objets — {activeRoom?.name}</div></div>
+          <div className="panel-title">{mode === "plan" ? "Ouvertures" : "Meubles"} — {activeRoom?.name}</div>
           <div className="panel">
-            {roomItemsComputed.length === 0 && <div className="empty">Aucun objet dans cette pièce. Ajoute-en depuis le catalogue à gauche.</div>}
-            {roomItemsComputed.map((item) => {
+            {visibleItems.length === 0 && (
+              <div className="empty">{mode === "plan" ? "Aucune porte ni fenêtre. Ajoutes-en depuis la liste de gauche." : "Aucun meuble dans cette pièce. Choisis-en un dans le catalogue à gauche."}</div>
+            )}
+            {visibleItems.map((item) => {
               const e = item.catalogEntry;
               const raw = items.find((it) => it.uid === item.uid);
+              const open = selectedUid === item.uid;
               return (
-                <div key={item.uid} className={`layout-row ${selectedUid === item.uid ? "selected" : ""}`} onClick={() => setSelectedUid(item.uid)}>
+                <div key={item.uid} id={`row-${item.uid}`} className={`layout-row ${open ? "selected" : ""}`} onClick={() => setSelectedUid(item.uid)}>
                   <div className="top">
                     <span className="name">{e.name}</span>
                     <span className="w">{item.width}×{item.depth} cm</span>
                   </div>
+                  {open && (
+                    <>
                   <div className="field" style={{ margin: "8px 0 0" }}>
                     <label>Position X / Y (cm)</label>
                     <div style={{ display: "flex", gap: 4 }}>
@@ -1900,6 +1987,8 @@ export default function KitchenDesigner() {
                     <button className="btn" onClick={(ev) => { ev.stopPropagation(); duplicateItem(item.uid); }}>Dupliquer</button>
                     <button className="btn" onClick={(ev) => { ev.stopPropagation(); removeItem(item.uid); }}>Supprimer</button>
                   </div>
+                    </>
+                  )}
                 </div>
               );
             })}
