@@ -15,6 +15,17 @@ import * as THREE from "three";
 const MB = { plinth: 5, setback: 8, facadeT: 1.8, gap: 0.4 };
 const MB_BODY = "#ece7dd", MB_PLINTH = "#3a3d42", MB_HANDLE = "#b9bcc0", MB_APPLI = "#25282d";
 function mbBox(x, y, z, w, h, d, color) { return { x, y, z, w, h, d, color }; }
+// Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
+function chairParts(w, d, color) {
+  const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
+  const lx = w / 2 - leg / 2, lz = d / 2 - leg / 2;
+  const parts = [];
+  [[-lx, -lz], [lx, -lz], [-lx, lz], [lx, lz]].forEach(([x, z]) => parts.push(mbBox(x, 0, z, leg, seatH - seatT, leg, legColor)));
+  parts.push(mbBox(0, seatH - seatT, 0, w, seatT, d, color));
+  [-lx, lx].forEach((x) => parts.push(mbBox(x, seatH, -lz, leg, backH, leg, legColor)));
+  parts.push(mbBox(0, seatH + backH * 0.3, -d / 2 + 1.25, Math.max(1, w - 2 * leg), backH * 0.6, 2.5, color));
+  return parts;
+}
 
 // Façades d'une travée. rows = poids de hauteur de chaque façade, du bas vers le haut
 // (négatif = appareil encastré : sombre, sans poignée) ; cols = nombre de vantaux.
@@ -170,7 +181,7 @@ const CATALOG = [
   { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
   { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
   { id: "table", name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
-  { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", height: 45, yOffset: 0, depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
+  { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: "chair", color: "#7c9473", height: 90, yOffset: 0, parts: (w, d) => chairParts(w, d, "#7c9473"), depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
   { id: "bed", name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 45, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
   { id: "nightstand", name: "Chevet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#8a7f9e", height: 50, yOffset: 0, depthMin: 35, depthMax: 40, depthStep: 5, defaultDepth: 38, widthMin: 35, widthMax: 45, widthStep: 5, defaultWidth: 40 },
   { id: "wardrobe", name: "Armoire", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 200, yOffset: 0, depthMin: 55, depthMax: 60, depthStep: 5, defaultDepth: 58, widthMin: 80, widthMax: 200, widthStep: 10, defaultWidth: 120 },
@@ -471,6 +482,15 @@ function getSymbolShapes(item) {
       shapes.push({ type: "circle", cx: tap.x, cy: tap.y, r: 3 });
       break;
     }
+    case "chair": {
+      // dossier : deux traits côté arrière (-v)
+      const bx = Math.max(1, w / 2 - 3);
+      [-d / 2 + 3, -d / 2 + 6.5].forEach((ly) => {
+        const p1 = L(-bx, ly), p2 = L(bx, ly);
+        shapes.push({ type: "line", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      });
+      break;
+    }
     case "stove": {
       const r = Math.min(w, d) * 0.13;
       [[-w / 4, -d / 4], [w / 4, -d / 4], [-w / 4, d / 4], [w / 4, d / 4]].forEach(([lx, ly]) => {
@@ -635,10 +655,124 @@ function buildBoxArrays(w, h, d) {
   ]);
   return { positions, normals, indices };
 }
-// Boîtes (repère de l'objet) d'un objet placé : ses "parts" si le catalogue en définit, sinon une boîte unique.
-function itemBoxes(item) {
+// --- Évier et plaque de cuisson : ils traversent toujours le plan de travail qui les porte ---
+// Le plan est découpé (trou de l'empreinte), l'évier s'enfonce dans une cuve, la plaque est encastrée.
+// Tout est calculé dans le repère local de l'objet : x = largeur (u), z = profondeur (v).
+const isWorktop = (e) => e.id === "worktop" || e.id.startsWith("mb-pdt");
+const isCutout = (e) => e.id === "sink" || e.id === "stove";
+const SINK_DEPTH = 18;
+function toLocal(obj, p) {
+  const dx = p.x - obj.centerX, dy = p.y - obj.centerY;
+  return { x: dx * obj.u.x + dy * obj.u.y, z: dx * obj.v.x + dy * obj.v.y };
+}
+function aabbLocal(obj, pts) {
+  const cs = pts.map((p) => toLocal(obj, p));
+  return { x0: Math.min(...cs.map((c) => c.x)), x1: Math.max(...cs.map((c) => c.x)), z0: Math.min(...cs.map((c) => c.z)), z1: Math.max(...cs.map((c) => c.z)) };
+}
+// Retire le rectangle h du rectangle r ; renvoie r lui-même s'ils ne se touchent pas.
+function subtractRect(r, h) {
+  const ix0 = Math.max(r.x0, h.x0), ix1 = Math.min(r.x1, h.x1), iz0 = Math.max(r.z0, h.z0), iz1 = Math.min(r.z1, h.z1);
+  if (ix0 >= ix1 || iz0 >= iz1) return [r];
+  const out = [];
+  if (r.x0 < ix0) out.push({ x0: r.x0, x1: ix0, z0: r.z0, z1: r.z1 });
+  if (ix1 < r.x1) out.push({ x0: ix1, x1: r.x1, z0: r.z0, z1: r.z1 });
+  if (r.z0 < iz0) out.push({ x0: ix0, x1: ix1, z0: r.z0, z1: iz0 });
+  if (iz1 < r.z1) out.push({ x0: ix0, x1: ix1, z0: iz1, z1: r.z1 });
+  return out;
+}
+// Plan de travail qui porte l'évier / la plaque : celui dont l'emprise contient le centre de l'objet.
+function hostWorktop(f, all) {
+  let best = null;
+  all.forEach((o) => {
+    if (!isWorktop(o.catalogEntry)) return;
+    const c = toLocal(o, { x: f.centerX, y: f.centerY });
+    if (Math.abs(c.x) > o.width / 2 || Math.abs(c.z) > o.depth / 2) return;
+    const top = o.catalogEntry.yOffset + o.catalogEntry.height;
+    if (!best || top > best.top) best = { item: o, top, thick: o.catalogEntry.height };
+  });
+  return best;
+}
+function worktopBoxes(item, all) {
   const e = item.catalogEntry;
-  return e.parts ? e.parts(item.width, item.depth) : [mbBox(0, 0, 0, item.width, e.height, item.depth, e.color)];
+  let rects = [{ x0: -item.width / 2, x1: item.width / 2, z0: -item.depth / 2, z1: item.depth / 2 }];
+  all.forEach((f) => {
+    if (!isCutout(f.catalogEntry)) return;
+    const host = hostWorktop(f, all);
+    if (!host || host.item.uid !== item.uid) return;
+    const hole = aabbLocal(item, f.corners);
+    rects = rects.flatMap((r) => subtractRect(r, hole));
+  });
+  return rects.map((r) => mbBox((r.x0 + r.x1) / 2, 0, (r.z0 + r.z1) / 2, r.x1 - r.x0, e.height, r.z1 - r.z0, e.color));
+}
+function cutoutBoxes(item, all) {
+  const e = item.catalogEntry, w = item.width, d = item.depth;
+  const host = hostWorktop(item, all);
+  const top = (host ? host.top : e.yOffset + e.height) - e.yOffset; // surface du plan, dans le repère de l'objet
+  const thick = host ? host.thick : 4;
+  if (e.id === "sink") {
+    const steel = "#c9d1d9", inner = "#9aa6b2", tapC = "#aeb7c0";
+    const rim = Math.min(2.5, w / 4, d / 4), t = 0.8, bw = w - 2 * rim, bd = d - 2 * rim, yB = top - SINK_DEPTH;
+    return [
+      // cadre : traverse le plan de travail sur toute son épaisseur et dépasse de 0,6 cm
+      mbBox(0, top - thick, -(d - rim) / 2, w, thick + 0.6, rim, steel),
+      mbBox(0, top - thick, (d - rim) / 2, w, thick + 0.6, rim, steel),
+      mbBox(-(w - rim) / 2, top - thick, 0, rim, thick + 0.6, bd, steel),
+      mbBox((w - rim) / 2, top - thick, 0, rim, thick + 0.6, bd, steel),
+      // cuve : fond et quatre parois
+      mbBox(0, yB, 0, bw, t, bd, inner),
+      mbBox(0, yB, -(bd - t) / 2, bw, SINK_DEPTH, t, inner),
+      mbBox(0, yB, (bd - t) / 2, bw, SINK_DEPTH, t, inner),
+      mbBox(-(bw - t) / 2, yB, 0, t, SINK_DEPTH, bd - 2 * t, inner),
+      mbBox((bw - t) / 2, yB, 0, t, SINK_DEPTH, bd - 2 * t, inner),
+      // robinet : colonne + bec
+      mbBox(0, top + 0.6, -d / 2 + rim / 2, 3, 20, 3, tapC),
+      mbBox(0, top + 0.6 + 18, -d / 2 + rim / 2 + 6, 2, 2, 12, tapC),
+    ];
+  }
+  const zs = Math.min(w, d) * 0.3;
+  return [
+    mbBox(0, top - 6, 0, w - 2, 6, d - 2, "#3a3f48"), // corps encastré, il traverse le plan
+    mbBox(0, top, 0, w, 0.6, d, "#15181d"), // vitre
+    ...[[-w / 4, -d / 4], [w / 4, -d / 4], [-w / 4, d / 4], [w / 4, d / 4]].map(([x, z]) => mbBox(x, top + 0.6, z, zs, 0.1, zs, "#4a505a")),
+  ];
+}
+// Creuse la cuve de l'évier dans les caissons situés dessous (sinon elle resterait cachée dans le meuble).
+function carveSinkCavities(item, boxes, all) {
+  const e = item.catalogEntry;
+  let out = boxes;
+  all.forEach((f) => {
+    if (f.catalogEntry.id !== "sink" || f.uid === item.uid) return;
+    const host = hostWorktop(f, all);
+    if (!host) return;
+    const rim = Math.min(2.5, f.width / 4, f.depth / 4);
+    const a = aabbLocal(item, f.corners);
+    const cav = { x0: a.x0 + rim, x1: a.x1 - rim, z0: a.z0 + rim, z1: a.z1 - rim };
+    if (cav.x0 >= cav.x1 || cav.z0 >= cav.z1) return;
+    const yFloor = host.top - SINK_DEPTH;
+    out = out.flatMap((b) => {
+      if (b.w <= 5 || b.h <= 5 || b.d <= 5) return [b]; // façades, poignées, socle : on n'y touche pas
+      const bot = e.yOffset + b.y, top = bot + b.h;
+      if (bot >= host.top - 0.1) return [b]; // au-dessus du plan (meubles hauts) : rien à creuser
+      const r = { x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2 };
+      const pieces = subtractRect(r, cav);
+      if (pieces.length === 1 && pieces[0] === r) return [b];
+      const res = [];
+      if (bot < yFloor) res.push({ ...b, h: Math.min(top, yFloor) - bot });
+      const upBot = Math.max(bot, yFloor);
+      if (top > upBot) pieces.forEach((p) => res.push(mbBox((p.x0 + p.x1) / 2, upBot - e.yOffset, (p.z0 + p.z1) / 2, p.x1 - p.x0, top - upBot, p.z1 - p.z0, b.color)));
+      return res;
+    });
+  });
+  return out;
+}
+// Boîtes (repère de l'objet) d'un objet placé : ses "parts" si le catalogue en définit, sinon une boîte unique.
+// `all` = les objets de la pièce (pour percer les plans de travail et creuser les caissons sous un évier).
+function itemBoxes(item, all = []) {
+  const e = item.catalogEntry;
+  if (isWorktop(e)) return worktopBoxes(item, all);
+  if (isCutout(e)) return cutoutBoxes(item, all);
+  const boxes = e.parts ? e.parts(item.width, item.depth) : [mbBox(0, 0, 0, item.width, e.height, item.depth, e.color)];
+  return carveSinkCavities(item, boxes, all);
 }
 function hexToRgb01(hex) {
   const n = parseInt(hex.replace("#", ""), 16);
@@ -656,7 +790,7 @@ function exportGLTF(items, format = "gltf") {
 
   items.forEach((item, i) => {
     const primitives = [];
-    itemBoxes(item).forEach((box) => {
+    itemBoxes(item, items).forEach((box) => {
     const { positions, normals, indices } = buildBoxArrays(box.w / 100, box.h / 100, box.d / 100);
     for (let v = 0; v < positions.length; v += 3) { positions[v] += box.x / 100; positions[v + 1] += box.y / 100; positions[v + 2] += box.z / 100; }
 
@@ -1266,7 +1400,7 @@ export default function KitchenDesigner() {
       const holder = new THREE.Group();
       holder.rotation.y = item.angleRad;
       holder.position.set(item.centerX / 100, item.catalogEntry.yOffset / 100, item.centerY / 100);
-      itemBoxes(item).forEach((b) => {
+      itemBoxes(item, roomItemsComputed).forEach((b) => {
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(b.w / 100, b.h / 100, b.d / 100),
           new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.8, metalness: 0.05 }),
