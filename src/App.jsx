@@ -14,7 +14,54 @@ import * as THREE from "three";
 // ---------------------------------------------------------------------------
 const MB = { plinth: 5, setback: 8, facadeT: 1.8, gap: 0.4 };
 const MB_BODY = "#ece7dd", MB_PLINTH = "#3a3d42", MB_HANDLE = "#b9bcc0", MB_APPLI = "#25282d";
-function mbBox(x, y, z, w, h, d, color) { return { x, y, z, w, h, d, color }; }
+function mbBox(x, y, z, w, h, d, color, alpha) { return alpha == null ? { x, y, z, w, h, d, color } : { x, y, z, w, h, d, color, alpha }; }
+// Ouvertures (repère de l'objet : x = largeur, z = épaisseur du mur, y depuis le bas de l'ouverture).
+// Cadre + vantail(s) ou vitrage ; les vitrages sont transparents (alpha).
+const OP_FRAME = "#f1ece3", OP_LEAF = "#d8c3a3", OP_METAL = "#b8bcc2", OP_GLASS = "#bfe3f2";
+function doorParts(w, d, h) {
+  const t = Math.min(4, w / 10);
+  return [
+    mbBox(-(w - t) / 2, 0, 0, t, h, d, OP_FRAME), mbBox((w - t) / 2, 0, 0, t, h, d, OP_FRAME),
+    mbBox(0, h - t, 0, Math.max(1, w - 2 * t), t, d, OP_FRAME),
+    mbBox(0, 0, 0, Math.max(1, w - 2 * t), h - t, 3.5, OP_LEAF),
+    mbBox(w / 2 - t - 8, 98, 2.6, 12, 2, 2.4, OP_METAL),
+  ];
+}
+function doubleDoorParts(w, d, h) {
+  const t = Math.min(4, w / 10), lw = Math.max(1, (w - 2 * t - 0.4) / 2);
+  return [
+    mbBox(-(w - t) / 2, 0, 0, t, h, d, OP_FRAME), mbBox((w - t) / 2, 0, 0, t, h, d, OP_FRAME),
+    mbBox(0, h - t, 0, Math.max(1, w - 2 * t), t, d, OP_FRAME),
+    mbBox(-(lw + 0.4) / 2, 0, 0, lw, h - t, 3.5, OP_LEAF), mbBox((lw + 0.4) / 2, 0, 0, lw, h - t, 3.5, OP_LEAF),
+    mbBox(-6, 98, 2.6, 2, 12, 2.4, OP_METAL), mbBox(6, 98, 2.6, 2, 12, 2.4, OP_METAL),
+  ];
+}
+function windowParts(w, d, h) {
+  const t = Math.min(4, w / 8, h / 8), parts = [
+    mbBox(-(w - t) / 2, 0, 0, t, h, d, OP_FRAME), mbBox((w - t) / 2, 0, 0, t, h, d, OP_FRAME),
+    mbBox(0, 0, 0, Math.max(1, w - 2 * t), t, d, OP_FRAME), mbBox(0, h - t, 0, Math.max(1, w - 2 * t), t, d, OP_FRAME),
+    mbBox(0, t, 0, Math.max(1, w - 2 * t), Math.max(1, h - 2 * t), 0.8, OP_GLASS, 0.35),
+  ];
+  if (w >= 120) parts.push(mbBox(0, t, 0, 3, Math.max(1, h - 2 * t), 3, OP_FRAME));
+  return parts;
+}
+function bayParts(w, d, h) {
+  const n = Math.max(2, Math.round(w / 90)), rail = 6, post = 5, parts = [
+    mbBox(0, 0, 0, w, rail, d, OP_FRAME), mbBox(0, h - rail, 0, w, rail, d, OP_FRAME),
+  ];
+  for (let k = 0; k <= n; k++) {
+    const x = Math.min(w / 2 - post / 2, Math.max(-w / 2 + post / 2, -w / 2 + (k * w) / n));
+    parts.push(mbBox(x, rail, 0, post, h - 2 * rail, d, OP_FRAME));
+  }
+  for (let i = 0; i < n; i++) parts.push(mbBox(-w / 2 + ((i + 0.5) * w) / n, rail, 0, Math.max(1, w / n - post), h - 2 * rail, 0.8, OP_GLASS, 0.35));
+  return parts;
+}
+function glassScreenParts(w, d, h) {
+  return [
+    mbBox(0, 1, 0, Math.max(1, w - 1), h - 2, 0.8, OP_GLASS, 0.35),
+    mbBox(0, 0, 0, w, 2, 2, OP_METAL), mbBox(0, h - 2, 0, w, 2, 2, OP_METAL),
+  ];
+}
 // Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
 function chairParts(w, d, color) {
   const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
@@ -166,11 +213,11 @@ const CATALOG = [
   // --- Réseaux ---
   { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", color: "#4a90b8", height: 5, yOffset: 60, depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10 },
   // --- Ouvertures ---
-  { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80 },
-  { id: "double-door", name: "Porte double", group: "Ouvertures", band: "opening", symbol: "doubledoor", color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 100, widthMax: 180, widthStep: 10, defaultWidth: 140 },
-  { id: "window", name: "Fenêtre", group: "Ouvertures", band: "opening", symbol: "window", color: "#eef3f6", height: 120, yOffset: 90, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 40, widthMax: 180, widthStep: 10, defaultWidth: 100 },
-  { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", color: "#cfe8f0", height: 220, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180 },
-  { id: "shower-screen", name: "Paroi de douche", group: "Ouvertures", band: "opening", symbol: "glasswall", color: "#cfe8f0", height: 200, yOffset: 0, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 70, widthMax: 140, widthStep: 10, defaultWidth: 90 },
+  { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", parts: (w, d) => doorParts(w, d, 200), color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80 },
+  { id: "double-door", name: "Porte double", group: "Ouvertures", band: "opening", symbol: "doubledoor", parts: (w, d) => doubleDoorParts(w, d, 200), color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 100, widthMax: 180, widthStep: 10, defaultWidth: 140 },
+  { id: "window", name: "Fenêtre", group: "Ouvertures", band: "opening", symbol: "window", parts: (w, d) => windowParts(w, d, 120), color: "#eef3f6", height: 120, yOffset: 90, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 40, widthMax: 180, widthStep: 10, defaultWidth: 100 },
+  { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", parts: (w, d) => bayParts(w, d, 220), color: "#cfe8f0", height: 220, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180 },
+  { id: "shower-screen", name: "Paroi de douche", group: "Ouvertures", band: "opening", symbol: "glasswall", parts: (w, d) => glassScreenParts(w, d, 200), color: "#cfe8f0", height: 200, yOffset: 0, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 70, widthMax: 140, widthStep: 10, defaultWidth: 90 },
   // --- Salle de bain ---
   { id: "bathtub", name: "Baignoire", group: "Salle de bain", band: "floor", symbol: "bathtub", color: "#dfe8ee", height: 55, yOffset: 0, depthMin: 70, depthMax: 80, depthStep: 5, defaultDepth: 70, widthMin: 150, widthMax: 180, widthStep: 10, defaultWidth: 170 },
   { id: "shower-tray", name: "Bac de douche", group: "Salle de bain", band: "floor", symbol: "showertray", color: "#dfe8ee", height: 5, yOffset: 0, depthMin: 80, depthMax: 100, depthStep: 10, defaultDepth: 90, widthMin: 80, widthMax: 100, widthStep: 10, defaultWidth: 90 },
@@ -205,6 +252,7 @@ const DEFAULT_VERTICES = [
 ];
 
 // Revêtement de sol par défaut d'une pièce — "none" = pas de motif (sol blanc uni).
+const DEFAULT_WALL = "#ece6dc";
 const DEFAULT_FLOOR = { type: "none", size: 15, size2: 90, color: "#d9c39a", colorAlt: "#c9ad7a", rotation: 0 };
 const FLOOR_TYPES = [
   { id: "none", name: "Aucun (sol uni)" },
@@ -765,6 +813,56 @@ function carveSinkCavities(item, boxes, all) {
   });
   return out;
 }
+// --- Murs 3D : pleins et colorés, visibles seulement de l'intérieur de la pièce (face arrière non
+// dessinée) et percés là où une porte, une fenêtre ou une baie est posée sur le mur. ---
+const isWallOpening = (e) => e.band === "opening" && e.id !== "shower-screen";
+function pointInPoly(p, verts) {
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const a = verts[i], b = verts[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+function buildWallMeshes(room, openings, wallColor) {
+  const H = room.height, verts = room.vertices, meshes = [];
+  const mat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.95, metalness: 0 });
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x3a4654 });
+  verts.forEach((A, i) => {
+    const B = verts[(i + 1) % verts.length];
+    const L = Math.hypot(B.x - A.x, B.y - A.y);
+    if (L < 1) return;
+    const dir = { x: (B.x - A.x) / L, y: (B.y - A.y) / L };
+    // normale intérieure : celle des deux côtés du mur qui pointe dans la pièce
+    let n = { x: -dir.y, y: dir.x }, flipped = false;
+    if (!pointInPoly({ x: (A.x + B.x) / 2 + n.x * 3, y: (A.y + B.y) / 2 + n.y * 3 }, verts)) { n = { x: -n.x, y: -n.y }; flipped = true; }
+    // repère du mur : x = abscisse le long du mur, z = hauteur
+    let rects = [{ x0: 0, x1: L, z0: 0, z1: H }];
+    openings.forEach((o) => {
+      const rel = { x: o.centerX - A.x, y: o.centerY - A.y };
+      const along = rel.x * dir.x + rel.y * dir.y, perp = Math.abs(rel.x * n.x + rel.y * n.y);
+      if (perp > 20 || Math.abs(o.u.x * dir.x + o.u.y * dir.y) < 0.9 || along < 0 || along > L) return;
+      const e = o.catalogEntry;
+      const hole = { x0: Math.max(0, along - o.width / 2), x1: Math.min(L, along + o.width / 2), z0: Math.max(0, e.yOffset), z1: Math.min(H, e.yOffset + e.height) };
+      rects = rects.flatMap((r) => subtractRect(r, hole));
+    });
+    const pos = [], nor = [];
+    const Pt = (u, v) => [(A.x + dir.x * u) / 100, v / 100, (A.y + dir.y * u) / 100];
+    rects.forEach((r) => {
+      const p0 = Pt(r.x0, r.z0), p1 = Pt(r.x1, r.z0), p2 = Pt(r.x1, r.z1), p3 = Pt(r.x0, r.z1);
+      (flipped ? [p0, p2, p1, p0, p3, p2] : [p0, p1, p2, p0, p2, p3]).forEach((p) => { pos.push(...p); nor.push(n.x, 0, n.y); });
+    });
+    if (!pos.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+    meshes.push(mesh);
+  });
+  return meshes;
+}
 // Boîtes (repère de l'objet) d'un objet placé : ses "parts" si le catalogue en définit, sinon une boîte unique.
 // `all` = les objets de la pièce (pour percer les plans de travail et creuser les caissons sous un évier).
 function itemBoxes(item, all = []) {
@@ -817,9 +915,13 @@ function exportGLTF(items, format = "gltf") {
     accessors.push({ bufferView: idxViewIdx, componentType: 5123, count: indices.length, type: "SCALAR" });
     const idxAcc = accessors.length - 1;
 
-    const color = box.color;
+    const color = box.alpha != null ? `${box.color}|${box.alpha}` : box.color;
     if (!(color in materialIndexByColor)) {
-      materials.push({ name: item.catalogEntry.name, pbrMetallicRoughness: { baseColorFactor: [...hexToRgb01(color), 1], metallicFactor: 0.05, roughnessFactor: 0.8 } });
+      materials.push({
+        name: item.catalogEntry.name,
+        pbrMetallicRoughness: { baseColorFactor: [...hexToRgb01(box.color), box.alpha ?? 1], metallicFactor: 0.05, roughnessFactor: 0.8 },
+        ...(box.alpha != null ? { alphaMode: "BLEND", doubleSided: true } : {}),
+      });
       materialIndexByColor[color] = materials.length - 1;
     }
     primitives.push({ attributes: { POSITION: posAcc, NORMAL: normAcc }, indices: idxAcc, material: materialIndexByColor[color] });
@@ -1080,6 +1182,7 @@ function normalizeProject(p) {
       vertices: Array.isArray(r.vertices) && r.vertices.length >= 3 ? r.vertices : DEFAULT_VERTICES,
       height: typeof r.height === "number" ? r.height : 240,
       floor: r.floor && typeof r.floor === "object" ? { ...DEFAULT_FLOOR, ...r.floor } : { ...DEFAULT_FLOOR },
+      wallColor: typeof r.wallColor === "string" ? r.wallColor : DEFAULT_WALL,
     }));
     const finalRooms = rooms.length ? rooms : [{ id: uid(), name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } }];
     const roomIds = new Set(finalRooms.map((r) => r.id));
@@ -1242,15 +1345,21 @@ export default function KitchenDesigner() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.75);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b3a8, 1.5));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
     dir.position.set(3, 5, 2);
-    scene.add(dir);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.bias = -0.0004; dir.shadow.normalBias = 0.02;
+    scene.add(dir); scene.add(dir.target);
 
     const group = new THREE.Group();
     const roomGroup = new THREE.Group();
-    scene.add(group); scene.add(roomGroup);
+    const wallGroup = new THREE.Group();
+    scene.add(group); scene.add(roomGroup); scene.add(wallGroup);
 
     const spherical = { radius: 6, theta: Math.PI / 4, phi: Math.PI / 3 };
     const target = new THREE.Vector3(2, 0.8, 1);
@@ -1323,7 +1432,7 @@ export default function KitchenDesigner() {
     window.addEventListener("pointercancel", onUp);
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
 
-    three.current = { scene, camera, renderer, group, roomGroup, target, spherical, updateCamera };
+    three.current = { scene, camera, renderer, group, roomGroup, wallGroup, dir, target, spherical, updateCamera };
     applySize(container.clientWidth, container.clientHeight);
     updateCamera();
 
@@ -1343,35 +1452,47 @@ export default function KitchenDesigner() {
   useEffect(() => {
     const t = three.current;
     if (!t || !activeRoom) return;
+    t.roomGroup.traverse((c) => { c.geometry?.dispose(); c.material?.map?.dispose(); c.material?.dispose(); });
     t.roomGroup.clear();
     const hM = activeRoom.height / 100;
     const shapePts = activeRoom.vertices.map((v) => new THREE.Vector2(v.x / 100, -(v.y / 100)));
     const shape = new THREE.Shape(shapePts);
     const floorGeo = new THREE.ShapeGeometry(shape);
     floorGeo.rotateX(-Math.PI / 2);
-    const floorTexture = buildFloorTexture(activeRoom.floor || DEFAULT_FLOOR);
+    const floorCfg = activeRoom.floor || DEFAULT_FLOOR;
+    const floorTexture = buildFloorTexture(floorCfg);
     const floorMat = floorTexture
       ? new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1, side: THREE.DoubleSide })
-      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide });
-    t.roomGroup.add(new THREE.Mesh(floorGeo, floorMat));
-
-    const wallMat = new THREE.LineBasicMaterial({ color: 0x1f6f93, transparent: true, opacity: 0.7 });
-    activeRoom.vertices.forEach((A, i) => {
-      const B = activeRoom.vertices[(i + 1) % activeRoom.vertices.length];
-      const pts = [
-        new THREE.Vector3(A.x / 100, 0, A.y / 100), new THREE.Vector3(B.x / 100, 0, B.y / 100),
-        new THREE.Vector3(B.x / 100, hM, B.y / 100), new THREE.Vector3(A.x / 100, hM, A.y / 100),
-        new THREE.Vector3(A.x / 100, 0, A.y / 100),
-      ];
-      t.roomGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wallMat));
-    });
+      : new THREE.MeshStandardMaterial({ color: floorCfg.color || DEFAULT_FLOOR.color, roughness: 1, side: THREE.DoubleSide });
+    const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+    floorMesh.receiveShadow = true;
+    t.roomGroup.add(floorMesh);
 
     const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     t.target.set((minX + maxX) / 2 / 100, hM / 3, (minY + maxY) / 2 / 100);
     t.spherical.radius = Math.max(maxX - minX, maxY - minY, 100) / 100 * 1.6 + 1;
+    // lumière et ombres cadrées sur la pièce
+    const cx = (minX + maxX) / 200, cz = (minY + maxY) / 200, span = Math.hypot(maxX - minX, maxY - minY) / 100;
+    t.dir.position.set(cx + span * 0.5, hM + span * 0.9, cz + span * 0.35);
+    t.dir.target.position.set(cx, 0, cz);
+    const sc = t.dir.shadow.camera;
+    sc.left = -span * 0.7; sc.right = span * 0.7; sc.top = span * 0.7; sc.bottom = -span * 0.7;
+    sc.near = 0.1; sc.far = span * 4 + hM * 2;
+    sc.updateProjectionMatrix();
     t.updateCamera();
   }, [activeRoom, show3D]);
+
+  // --- murs 3D : pleins, colorés, vus de l'intérieur, percés aux portes et fenêtres ---
+  useEffect(() => {
+    const t = three.current;
+    if (!t || !activeRoom) return;
+    t.wallGroup.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
+    t.wallGroup.clear();
+    const openings = roomItemsComputed.filter((it) => isWallOpening(it.catalogEntry));
+    buildWallMeshes(activeRoom, openings, activeRoom.wallColor || DEFAULT_WALL).forEach((m) => t.wallGroup.add(m));
+    t.updateCamera();
+  }, [activeRoom, roomItemsComputed, show3D]);
 
   // --- la sélection/édition de mur ne concerne que la pièce affichée ---
   useEffect(() => { setSelectedWallIndex(null); setWallEditIndex(null); }, [activeRoomId]);
@@ -1396,16 +1517,20 @@ export default function KitchenDesigner() {
     if (!t) return;
     t.group.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
     t.group.clear();
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x2f3844 });
     roomItemsComputed.forEach((item) => {
       const holder = new THREE.Group();
       holder.rotation.y = item.angleRad;
       holder.position.set(item.centerX / 100, item.catalogEntry.yOffset / 100, item.centerY / 100);
       itemBoxes(item, roomItemsComputed).forEach((b) => {
+        const glass = b.alpha != null;
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(b.w / 100, b.h / 100, b.d / 100),
-          new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.8, metalness: 0.05 }),
+          new THREE.MeshStandardMaterial({ color: b.color, roughness: glass ? 0.2 : 0.8, metalness: 0.05, transparent: glass, opacity: glass ? b.alpha : 1, depthWrite: !glass }),
         );
         mesh.position.set(b.x / 100, (b.y + b.h / 2) / 100, b.z / 100);
+        mesh.castShadow = !glass; mesh.receiveShadow = true;
+        if (Math.min(b.w, b.h, b.d) >= 0.5) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), edgeMat));
         holder.add(mesh);
       });
       t.group.add(holder);
@@ -1464,6 +1589,9 @@ export default function KitchenDesigner() {
   }
   function updateRoomHeight(val) {
     setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, height: val } : r)));
+  }
+  function updateRoomWallColor(color) {
+    setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, wallColor: color } : r)));
   }
   function updateRoomFloor(patch) {
     setRooms((rs) => rs.map((r) => (r.id === activeRoomId ? { ...r, floor: { ...(r.floor || DEFAULT_FLOOR), ...patch } } : r)));
@@ -1913,6 +2041,18 @@ export default function KitchenDesigner() {
                     <input type="number" value={activeRoom.height} onChange={(e) => updateRoomHeight(Number(e.target.value) || 0)} />
                   </div>
                   <div className="field"><label>Surface</label><div className="stat">{roomArea} m²</div></div>
+                </div>
+                <div className="field-row">
+                  <div className="field">
+                    <label>Couleur des murs</label>
+                    <input type="color" value={activeRoom.wallColor || DEFAULT_WALL} onChange={(e) => updateRoomWallColor(e.target.value)} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                  </div>
+                  {(activeRoom.floor || DEFAULT_FLOOR).type === "none" && (
+                    <div className="field">
+                      <label>Couleur du sol</label>
+                      <input type="color" value={(activeRoom.floor || DEFAULT_FLOOR).color} onChange={(e) => updateRoomFloor({ color: e.target.value })} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                    </div>
+                  )}
                 </div>
 
                 <div className="section-label">Ajouter une ouverture</div>
