@@ -14,6 +14,8 @@ import * as THREE from "three";
 // ---------------------------------------------------------------------------
 const MB = { plinth: 5, setback: 8, facadeT: 1.8, gap: 0.4 };
 const MB_BODY = "#ece7dd", MB_PLINTH = "#3a3d42", MB_HANDLE = "#b9bcc0", MB_APPLI = "#25282d";
+// Cylindre (ou cylindre elliptique : w et d sont les deux diamètres), base à y, centré en x/z.
+function mbCyl(x, y, z, w, h, d, color, alpha) { return { ...mbBox(x, y, z, w, h, d, color, alpha), cyl: true }; }
 function mbBox(x, y, z, w, h, d, color, alpha) { return alpha == null ? { x, y, z, w, h, d, color } : { x, y, z, w, h, d, color, alpha }; }
 // Ouvertures (repère de l'objet : x = largeur, z = épaisseur du mur, y depuis le bas de l'ouverture).
 // Cadre + vantail(s) ou vitrage ; les vitrages sont transparents (alpha).
@@ -142,6 +144,10 @@ function bedParts(w, d, color) {
   for (let i = 0; i < n; i++) parts.push(mbBox(n === 1 ? 0 : (i ? 1 : -1) * w / 4, 46, -d / 2 + hb + 20, pw, 11, 35, "#ffffff"));
   parts.push(mbBox(0, 30, hb / 2 + 30, w + 2, 20, d - hb - 60 - 4, duvet)); // couette (retombe sur les côtés)
   return parts;
+}
+function roundTableParts(w, d, color, top = 75) {
+  const dark = shadeHex(color, 0.7);
+  return [mbCyl(0, 0, 0, w * 0.45, 3, d * 0.45, dark), mbCyl(0, 3, 0, Math.max(6, w * 0.12), top - 6, Math.max(6, d * 0.12), dark), mbCyl(0, top - 3, 0, w, 3, d, color)];
 }
 function tableParts(w, d, color) {
   const top = 75, t = 3, leg = 6, inset = Math.min(6, w / 8, d / 8), dark = shadeHex(color, 0.75), parts = [];
@@ -413,6 +419,8 @@ const CATALOG = [
   { id: "sofa", name: "Canapé", group: "Séjour / Chambre", band: "floor", symbol: "sofa", color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 85, depthMax: 95, depthStep: 5, defaultDepth: 90, widthMin: 140, widthMax: 280, widthStep: 10, defaultWidth: 200 },
   { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
   { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", parts: (w, d) => coffeeTableParts(w, d, "#b98a52"), height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
+  { id: "round-table", name: "Table ronde", group: "Séjour / Chambre", band: "floor", symbol: null, round: true, color: "#b98a52", parts: (w, d) => roundTableParts(w, d, "#b98a52", 75), height: 75, yOffset: 0, depthMin: 60, depthMax: 200, depthStep: 10, defaultDepth: 110, widthMin: 60, widthMax: 200, widthStep: 10, defaultWidth: 110, note: "Plateau circulaire (ovale si largeur ≠ profondeur) sur pied central." },
+  { id: "round-coffee-table", name: "Table basse ronde", group: "Séjour / Chambre", band: "floor", symbol: null, round: true, color: "#b98a52", parts: (w, d) => roundTableParts(w, d, "#b98a52", 40), height: 40, yOffset: 0, depthMin: 40, depthMax: 120, depthStep: 10, defaultDepth: 80, widthMin: 40, widthMax: 120, widthStep: 10, defaultWidth: 80 },
   { id: "table", parts: (w, d) => tableParts(w, d, "#b98a52"), name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
   { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: "chair", color: "#7c9473", height: 90, yOffset: 0, parts: (w, d) => chairParts(w, d, "#7c9473"), depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
   { id: "bed", parts: (w, d) => bedParts(w, d, "#8a7f9e"), name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 100, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
@@ -699,8 +707,12 @@ function computeItemGeometry(item, roomHeight) {
 }
 
 // --- chemin d'un rectangle à coins arrondis (par coin), en repère local u/v ---
-function roundedRectPathD(cx, cy, width, depth, u, v, radii) {
+function roundedRectPathD(cx, cy, width, depth, u, v, radii, ellipse) {
   const halfW = width / 2, halfD = depth / 2;
+  if (ellipse) {
+    const rot = (Math.atan2(u.y, u.x) * 180) / Math.PI, P = (lx) => `${(cx + u.x * lx).toFixed(1)} ${(cy + u.y * lx).toFixed(1)}`;
+    return `M ${P(-halfW)} A ${halfW} ${halfD} ${rot.toFixed(2)} 0 1 ${P(halfW)} A ${halfW} ${halfD} ${rot.toFixed(2)} 0 1 ${P(-halfW)} Z`;
+  }
   const r = (radii || [0, 0, 0, 0]).map((ri) => Math.max(0, Math.min(ri, halfW, halfD)));
   const [r0, r1, r2, r3] = r;
   const L = (lx, ly) => ({ x: cx + u.x * lx + v.x * ly, y: cy + u.y * lx + v.y * ly });
@@ -886,6 +898,22 @@ function buildShapeElement(s) {
   return "";
 }
 
+function buildCylArrays(w, h, d, N = 48) {
+  const rx = w / 2, rz = d / 2, pos = [], nor = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+    let nx = c / rx, nz = sn / rz; const l = Math.hypot(nx, nz); nx /= l; nz /= l;
+    pos.push(c * rx, 0, sn * rz, c * rx, h, sn * rz); nor.push(nx, 0, nz, nx, 0, nz);
+  }
+  for (let i = 0; i < N; i++) { const b0 = 2 * i, t0 = b0 + 1, b1 = b0 + 2, t1 = b0 + 3; idx.push(b0, t1, b1, b0, t0, t1); }
+  [[h, 1], [0, -1]].forEach(([y, ny]) => {
+    const c = pos.length / 3; pos.push(0, y, 0); nor.push(0, ny, 0);
+    const r0 = pos.length / 3;
+    for (let i = 0; i < N; i++) { const a = (i / N) * Math.PI * 2; pos.push(Math.cos(a) * rx, y, Math.sin(a) * rz); nor.push(0, ny, 0); }
+    for (let i = 0; i < N; i++) { const p = r0 + i, q = r0 + ((i + 1) % N); idx.push(...(ny > 0 ? [c, q, p] : [c, p, q])); }
+  });
+  return { positions: new Float32Array(pos), normals: new Float32Array(nor), indices: new Uint16Array(idx) };
+}
 function buildBoxArrays(w, h, d) {
   const x = w / 2, y = h, z = d / 2;
   const positions = new Float32Array([
@@ -1103,7 +1131,7 @@ function exportGLTF(items, format = "gltf") {
   items.forEach((item, i) => {
     const primitives = [];
     itemBoxes(item, items).forEach((box) => {
-    const { positions, normals, indices } = buildBoxArrays(box.w / 100, box.h / 100, box.d / 100);
+    const { positions, normals, indices } = (box.cyl ? buildCylArrays : buildBoxArrays)(box.w / 100, box.h / 100, box.d / 100);
     for (let v = 0; v < positions.length; v += 3) { positions[v] += box.x / 100; positions[v + 1] += box.y / 100; positions[v + 2] += box.z / 100; }
 
     const posBytes = new Uint8Array(positions.buffer);
@@ -1234,8 +1262,8 @@ function exportFloorPlanSVG(rooms, items) {
       const isWall = item.catalogEntry.band === "wall";
       const isOpening = item.catalogEntry.band === "opening";
       const shifted = { ...item, centerX: item.centerX + ox, centerY: item.centerY + oy };
-      if (item.catalogEntry.roundable) {
-        const d = roundedRectPathD(shifted.centerX, shifted.centerY, item.width, item.depth, item.u, item.v, item.radii);
+      if (item.catalogEntry.roundable || item.catalogEntry.round) {
+        const d = roundedRectPathD(shifted.centerX, shifted.centerY, item.width, item.depth, item.u, item.v, item.radii, item.catalogEntry.round);
         body += `<path d="${d}" fill="${item.catalogEntry.color}" fill-opacity="0.55" stroke="#111" stroke-width="1.2"/>`;
       } else {
         const corners = item.corners.map((c) => tr(c));
@@ -1283,7 +1311,7 @@ function exportMaterialsCSV(rooms, items) {
     const width = item.width ?? entry.defaultWidth, depth = item.depth ?? entry.defaultDepth;
     const key = `${entry.group}|${entry.name}|${width}|${depth}|${entry.height}`;
     if (!groups[key]) {
-      groups[key] = { category: entry.group, name: entry.name, width, depth, height: entry.height, qty: 0, roundable: !!entry.roundable, rooms: [] };
+      groups[key] = { category: entry.group, name: entry.name, width, depth, height: entry.height, qty: 0, roundable: !!(entry.roundable || entry.round), rooms: [] };
     }
     groups[key].qty += 1;
     const roomName = roomNameById[item.roomId] || "?";
@@ -1752,12 +1780,12 @@ export default function KitchenDesigner() {
       itemBoxes(item, roomItemsComputed).forEach((b) => {
         const glass = b.alpha != null;
         const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(b.w / 100, b.h / 100, b.d / 100),
+          b.cyl ? new THREE.CylinderGeometry(b.w / 200, b.w / 200, b.h / 100, 48).scale(1, 1, b.d / b.w) : new THREE.BoxGeometry(b.w / 100, b.h / 100, b.d / 100),
           new THREE.MeshStandardMaterial({ color: b.color, roughness: glass ? 0.2 : 0.8, metalness: 0.05, transparent: glass, opacity: glass ? b.alpha : 1, depthWrite: !glass }),
         );
         mesh.position.set(b.x / 100, (b.y + b.h / 2) / 100, b.z / 100);
         mesh.castShadow = !glass; mesh.receiveShadow = true;
-        if (Math.min(b.w, b.h, b.d) >= 0.5) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), edgeMat));
+        if (Math.min(b.w, b.h, b.d) >= 0.5) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, b.cyl ? 30 : 1), edgeMat));
         holder.add(mesh);
       });
       t.group.add(holder);
@@ -2432,8 +2460,8 @@ export default function KitchenDesigner() {
                 const selected = selectedUid === item.uid;
                 const band = item.catalogEntry.band;
                 const locked = isPlanEntry(item.catalogEntry) !== (mode === "plan");
-                if (item.catalogEntry.roundable) {
-                  const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii);
+                if (item.catalogEntry.roundable || item.catalogEntry.round) {
+                  const d = roundedRectPathD(item.x, item.y, item.width, item.depth, item.u, item.v, item.radii, item.catalogEntry.round);
                   return (
                     <g key={item.uid} onPointerDown={locked ? undefined : (e) => onItemDown(item, e)} style={{ cursor: locked ? "default" : "grab", pointerEvents: locked ? "none" : undefined }} opacity={locked && mode === "plan" ? 0.25 : undefined}>
                       {selected && <path d={d} fill="none" stroke="#e2711d" strokeWidth={8} strokeOpacity={0.4} vectorEffect="non-scaling-stroke" />}
