@@ -86,6 +86,49 @@ function coatRackStandParts(w, d) {
     mbBox(0, y, arm / 2, 1.5, 1.5, arm, OP_METAL), mbBox(0, y, -arm / 2, 1.5, 1.5, arm, OP_METAL)));
   return parts;
 }
+function shadeHex(hex, f) {
+  const n = parseInt(hex.replace("#", ""), 16), c = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return "#" + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => c(v).toString(16).padStart(2, "0")).join("");
+}
+// Canapé / fauteuil : pieds, châssis, assises, dossier à coussins, accoudoirs. Le dossier est côté -z.
+function sofaParts(w, d, color) {
+  const arm = Math.min(14, w / 6), back = Math.min(20, d / 3), footH = 8, baseH = 22, seatTop = 46, H = 85;
+  const soft = shadeHex(color, 1.12), dark = shadeHex(color, 0.78), parts = [];
+  const fx = w / 2 - 5, fz = d / 2 - 5;
+  [[-fx, -fz], [fx, -fz], [-fx, fz], [fx, fz]].forEach(([x, z]) => parts.push(mbBox(x, 0, z, 5, footH, 5, "#3a3d42")));
+  parts.push(mbBox(0, footH, 0, w, baseH, d, dark));
+  parts.push(mbBox(0, footH + baseH, -d / 2 + back / 2, w, H - footH - baseH, back, color)); // dossier (cadre)
+  [-1, 1].forEach((sx) => parts.push(mbBox(sx * (w / 2 - arm / 2), footH + baseH, 0, arm, 62 - footH - baseH, d, color)));
+  const inner = w - 2 * arm, n = Math.max(1, Math.round(inner / 65)), cw = inner / n, seatD = d - back;
+  for (let i = 0; i < n; i++) {
+    const x = -inner / 2 + cw * (i + 0.5);
+    parts.push(mbBox(x, footH + baseH, back / 2, cw - 0.8, seatTop - footH - baseH, seatD - 0.5, soft));
+    parts.push(mbBox(x, seatTop, -d / 2 + back + 7, cw - 0.8, 78 - seatTop, 14, soft));
+  }
+  return parts;
+}
+// Table basse : plateau, tablette basse et quatre pieds.
+function coffeeTableParts(w, d, color) {
+  const top = 40, t = 3, leg = 4, inset = Math.min(5, w / 8, d / 8), dark = shadeHex(color, 0.7), parts = [];
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => parts.push(mbBox(sx * (w / 2 - inset), 0, sz * (d / 2 - inset), leg, top - t, leg, dark)));
+  parts.push(mbBox(0, top - t, 0, w, t, d, color));
+  parts.push(mbBox(0, 12, 0, w - 2 * inset - leg, 2, d - 2 * inset - leg, dark));
+  return parts;
+}
+// Radiateur à panneaux : plaques avant et arrière, grille supérieure, robinets. Sèche-serviettes : montants et barreaux.
+function radiatorParts(w, d, h) {
+  const parts = [mbBox(0, 0, -d / 2 + 1.5, w, h, 3, "#f4f4f2"), mbBox(0, 0, d / 2 - 1.2, w, h, 2.4, "#f8f8f6"), mbBox(0, h - 2, 0, w - 2, 2.5, d - 1, "#e4e4e0")];
+  const n = Math.max(2, Math.floor(w / 6));
+  for (let i = 1; i < n; i++) parts.push(mbBox(-w / 2 + (w * i) / n, 2, d / 2 - 0.2, 0.8, h - 6, 0.4, "#dcdcd8"));
+  parts.push(mbBox(-w / 2 + 3, -3, 0, 2.5, 3, 2.5, OP_METAL), mbBox(w / 2 - 3, -3, 0, 2.5, 3, 2.5, OP_METAL));
+  return parts;
+}
+function towelRadiatorParts(w, d, h) {
+  const parts = [mbBox(-w / 2 + 1.5, 0, 0, 3, h, d, "#f4f4f2"), mbBox(w / 2 - 1.5, 0, 0, 3, h, d, "#f4f4f2")];
+  const n = Math.max(4, Math.floor(h / 8));
+  for (let i = 0; i < n; i++) parts.push(mbBox(0, 3 + ((h - 8) * i) / (n - 1), 0, w - 6, 2.4, 2.4, "#f4f4f2"));
+  return parts;
+}
 // Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
 function chairParts(w, d, color) {
   const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
@@ -273,6 +316,8 @@ const CATALOG = [
   { id: "fridge", name: "Réfrigérateur", group: "Cuisine — Électroménager", band: "floor", symbol: "fridge", color: "#e7edf1", height: 190, yOffset: 0, depthMin: 50, depthMax: 60, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 90, widthStep: 5, defaultWidth: 60 },
   { id: "dishwasher", name: "Lave-vaisselle", group: "Cuisine — Électroménager", band: "floor", symbol: "dishwasher", color: "#4a7fb5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 60, widthMax: 60, widthStep: 0, defaultWidth: 60 },
   // --- Réseaux ---
+  { id: "radiator", name: "Radiateur", group: "Réseaux", band: "wall", symbol: "radiator", color: "#f4f4f2", parts: (w, d) => radiatorParts(w, d, 60), height: 60, yOffset: 12, depthMin: 8, depthMax: 16, depthStep: 1, defaultDepth: 10, widthMin: 30, widthMax: 300, widthStep: 10, defaultWidth: 100, note: "Radiateur à panneaux : largeur libre, hauteur de fixation réglable." },
+  { id: "towel-radiator", name: "Radiateur sèche-serviettes", group: "Réseaux", band: "wall", symbol: "radiator", color: "#f4f4f2", parts: (w, d) => towelRadiatorParts(w, d, 150), height: 150, yOffset: 20, depthMin: 8, depthMax: 15, depthStep: 1, defaultDepth: 10, widthMin: 40, widthMax: 80, widthStep: 5, defaultWidth: 50, note: "Sèche-serviettes vertical : hauteur de fixation réglable." },
   { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", color: "#4a90b8", height: 5, yOffset: 60, depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10 },
   // --- Ouvertures ---
   { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", parts: (w, d) => doorParts(w, d, 200), color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80 },
@@ -286,9 +331,9 @@ const CATALOG = [
   { id: "toilet", name: "WC", group: "Salle de bain", band: "floor", symbol: "toilet", color: "#eef3f6", height: 40, yOffset: 0, depthMin: 40, depthMax: 45, depthStep: 5, defaultDepth: 42, widthMin: 35, widthMax: 40, widthStep: 5, defaultWidth: 38 },
   { id: "vanity", name: "Meuble vasque", group: "Salle de bain", band: "floor", symbol: "sink", color: "#dfe8ee", height: 85, yOffset: 0, depthMin: 45, depthMax: 55, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 120, widthStep: 10, defaultWidth: 80 },
   // --- Séjour / Chambre ---
-  { id: "sofa", name: "Canapé", group: "Séjour / Chambre", band: "floor", symbol: "sofa", color: "#7c9473", height: 85, yOffset: 0, depthMin: 85, depthMax: 95, depthStep: 5, defaultDepth: 90, widthMin: 140, widthMax: 280, widthStep: 10, defaultWidth: 200 },
-  { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
-  { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
+  { id: "sofa", name: "Canapé", group: "Séjour / Chambre", band: "floor", symbol: "sofa", color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 85, depthMax: 95, depthStep: 5, defaultDepth: 90, widthMin: 140, widthMax: 280, widthStep: 10, defaultWidth: 200 },
+  { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
+  { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", parts: (w, d) => coffeeTableParts(w, d, "#b98a52"), height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
   { id: "table", name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
   { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: "chair", color: "#7c9473", height: 90, yOffset: 0, parts: (w, d) => chairParts(w, d, "#7c9473"), depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
   { id: "bed", name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 45, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
@@ -716,6 +761,11 @@ function getSymbolShapes(item) {
       });
       break;
     }
+    case "radiator": {
+      const a = L(-w / 2 + 2, 0), b = L(w / 2 - 2, 0);
+      shapes.push({ type: "line", x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+      break;
+    }
     case "bed": {
       const pillowW = w * 0.35, pillowH = Math.min(24, d * 0.25);
       const left = [L(-w / 2 + 6, -d / 2 + 6), L(-w / 2 + 6 + pillowW, -d / 2 + 6), L(-w / 2 + 6 + pillowW, -d / 2 + 6 + pillowH), L(-w / 2 + 6, -d / 2 + 6 + pillowH)];
@@ -776,7 +826,7 @@ function buildBoxArrays(w, h, d) {
 // --- Évier et plaque de cuisson : ils traversent toujours le plan de travail qui les porte ---
 // Le plan est découpé (trou de l'empreinte), l'évier s'enfonce dans une cuve, la plaque est encastrée.
 // Tout est calculé dans le repère local de l'objet : x = largeur (u), z = profondeur (v).
-const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack"; // objets muraux à hauteur de fixation réglable
+const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack" || e.id === "radiator" || e.id === "towel-radiator"; // objets muraux à hauteur de fixation réglable
 const isWorktop = (e) => e.id === "worktop" || e.id.startsWith("mb-pdt");
 const isCutout = (e) => e.id === "sink" || e.id === "stove";
 const SINK_DEPTH = 18;
