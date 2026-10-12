@@ -1306,6 +1306,7 @@ export default function KitchenDesigner() {
   const [mode, setMode] = useState("plan"); // "plan" (murs, ouvertures) | "meubles"
   const [catalogQuery, setCatalogQuery] = useState("");
   const [show3D, setShow3D] = useState(false);
+  const [sun, setSun] = useState({ az: 55, el: 55 }); // lumière : orientation (° depuis le haut du plan, sens horaire) et hauteur (° au-dessus de l'horizon)
   const [importError, setImportError] = useState("");
 
   const containerRef = useRef(null);
@@ -1484,7 +1485,6 @@ export default function KitchenDesigner() {
     t.spherical.radius = Math.max(maxX - minX, maxY - minY, 100) / 100 * 1.6 + 1;
     // lumière et ombres cadrées sur la pièce
     const cx = (minX + maxX) / 200, cz = (minY + maxY) / 200, span = Math.hypot(maxX - minX, maxY - minY) / 100;
-    t.dir.position.set(cx + span * 0.5, hM + span * 0.9, cz + span * 0.35);
     t.dir.target.position.set(cx, 0, cz);
     const sc = t.dir.shadow.camera;
     sc.left = -span * 0.7; sc.right = span * 0.7; sc.top = span * 0.7; sc.bottom = -span * 0.7;
@@ -1492,6 +1492,18 @@ export default function KitchenDesigner() {
     sc.updateProjectionMatrix();
     t.updateCamera();
   }, [activeRoom, show3D]);
+
+  // --- direction de la lumière (orientation + hauteur) ---
+  useEffect(() => {
+    const t = three.current;
+    if (!t || !activeRoom) return;
+    const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 200, cz = (Math.min(...ys) + Math.max(...ys)) / 200;
+    const span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 100;
+    const az = (sun.az * Math.PI) / 180, el = (Math.max(5, Math.min(90, sun.el)) * Math.PI) / 180, dist = span * 1.2 + activeRoom.height / 100;
+    t.dir.position.set(cx + Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, cz - Math.cos(az) * Math.cos(el) * dist);
+    t.updateCamera();
+  }, [sun, activeRoom, show3D]);
 
   // --- murs 3D : pleins, colorés, vus de l'intérieur, percés aux portes et fenêtres ---
   useEffect(() => {
@@ -1942,6 +1954,9 @@ export default function KitchenDesigner() {
         .viewer3d-wrap { height:320px; }
         .body.is3d .sidebar, .body.is3d .sidebar-right, .body.is3d .editor2d-wrap, .body.is3d .footer-hint { display:none; }
         .body.is3d .main { min-height:0; }
+        .sun-ctl { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-family:'IBM Plex Mono',monospace; font-size:10px; color:#1f6f93; }
+        .sun-ctl label { display:flex; align-items:center; gap:6px; }
+        .sun-ctl input[type=range] { width:110px; }
         .body.is3d .viewer3d-wrap { position:relative; flex:1; height:calc(100vh - 130px); min-height:60vh; }
         @media (max-width: 860px) { .body.is3d .viewer3d-wrap { height:calc(100vh - 230px); } }
         .body.is3d .viewer3d-wrap > div { position:absolute; inset:0; height:auto; }
@@ -2264,7 +2279,13 @@ export default function KitchenDesigner() {
           <div className="viewer3d-bar">
             <div className="section-label" style={{ padding: 0 }}>{show3D ? "Vue 3D — glisser pour orbiter, molette/pincer pour zoomer" : "Vue 3D masquée"}</div>
             {mode === "3d"
-              ? <button className="btn primary" onClick={exportView3DPNG}>Exporter la vue (PNG)</button>
+              ? (
+                <div className="sun-ctl">
+                  <label>Lumière — orientation {Math.round(sun.az)}°<input type="range" min="0" max="359" value={sun.az} onChange={(ev) => setSun((v) => ({ ...v, az: Number(ev.target.value) }))} /></label>
+                  <label>hauteur {Math.round(sun.el)}°<input type="range" min="10" max="90" value={sun.el} onChange={(ev) => setSun((v) => ({ ...v, el: Number(ev.target.value) }))} /></label>
+                  <button className="btn primary" onClick={exportView3DPNG}>Exporter la vue (PNG)</button>
+                </div>
+              )
               : <button className="btn" onClick={() => setShow3D((v) => !v)}>{show3D ? "Masquer la 3D" : "Afficher la 3D"}</button>}
           </div>
           {show3D && <div className="viewer3d-wrap"><div ref={containerRef} /></div>}
