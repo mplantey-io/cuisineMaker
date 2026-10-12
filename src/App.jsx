@@ -237,6 +237,7 @@ const CATALOG = [
   { id: "desk", name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
   { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
   { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
+  { id: "shelf", name: "Étagère", group: "Cuisine — Meubles", band: "wall", symbol: null, color: "#c9a26a", height: 2.5, yOffset: 150, depthMin: 10, depthMax: 60, depthStep: 5, defaultDepth: 25, widthMin: 20, widthMax: 300, widthStep: 10, defaultWidth: 80, note: "Planche murale : largeur, profondeur et hauteur de fixation libres." },
   { id: "banquette", name: "Banquette", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#6f8fa8", height: 45, yOffset: 0, depthMin: 40, depthMax: 60, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 150, roundable: true },
   ...MOBALPA_CATALOG,
 ];
@@ -482,7 +483,7 @@ function computeItemGeometry(item) {
   let entry = catalogById[item.catalogId];
   if (!entry) return null;
   // Plateau réglé en hauteur (table) : on décale le plateau et on lui ajoute des pieds.
-  if (typeof item.topHeight === "number" && isWorktop(entry)) entry = { ...entry, yOffset: Math.max(0, item.topHeight - entry.height), withLegs: true };
+  if (typeof item.topHeight === "number" && (isWorktop(entry) || entry.id === "shelf")) entry = { ...entry, yOffset: Math.max(0, item.topHeight - entry.height), withLegs: isWorktop(entry) };
   const rad = ((item.angleDeg || 0) * Math.PI) / 180;
   const u = { x: Math.cos(rad), y: Math.sin(rad) };
   const v = { x: -Math.sin(rad), y: Math.cos(rad) };
@@ -2305,13 +2306,13 @@ export default function KitchenDesigner() {
                     <label>Angle (°)</label>
                     <input type="number" value={raw.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
                   </div>
-                  {isWorktop(e) && (
+                  {(isWorktop(e) || e.id === "shelf") && (
                     <div className="field" style={{ margin: "8px 0 0" }}>
-                      <label>Hauteur du dessus (cm) — 75 pour une table, pieds ajoutés</label>
+                      <label>{e.id === "shelf" ? "Hauteur de fixation (cm) — dessus de l'étagère" : "Hauteur du dessus (cm) — 75 pour une table, pieds ajoutés"}</label>
                       <div style={{ display: "flex", gap: 4 }}>
                         <DimInput value={item.catalogEntry.yOffset + item.catalogEntry.height} onCommit={(n) => updateItem(item.uid, { topHeight: Math.max(e.height, n) })} />
-                        <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: 75 }); }}>Table</button>
-                        <button className="btn" disabled={typeof raw.topHeight !== "number"} onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: undefined }); }}>Standard</button>
+                        {e.id !== "shelf" && <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: 75 }); }}>Table</button>}
+                        {e.id !== "shelf" && <button className="btn" disabled={typeof raw.topHeight !== "number"} onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: undefined }); }}>Standard</button>}
                       </div>
                     </div>
                   )}
