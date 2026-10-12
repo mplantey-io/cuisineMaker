@@ -129,6 +129,85 @@ function towelRadiatorParts(w, d, h) {
   for (let i = 0; i < n; i++) parts.push(mbBox(0, 3 + ((h - 8) * i) / (n - 1), 0, w - 6, 2.4, 2.4, "#f4f4f2"));
   return parts;
 }
+
+// --- Mobilier détaillé (volumes simples mais reconnaissables). Repère objet : dossier / arrière côté -z. ---
+function bedParts(w, d, color) {
+  const mattress = "#f1ede6", duvet = shadeHex(color, 1.25), parts = [];
+  const hb = 5; // tête de lit
+  parts.push(mbBox(0, 0, -d / 2 + hb / 2, w, 100, hb, color));
+  parts.push(mbBox(0, 8, hb / 2, w, 18, d - hb, color)); // sommier / cadre
+  [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => parts.push(mbBox(sx * (w / 2 - 3), 0, sz * (d / 2 - 3), 5, 8, 5, "#3a3d42"))));
+  parts.push(mbBox(0, 26, hb / 2, w - 4, 20, d - hb - 2, mattress));
+  const pw = Math.min(70, w / 2 - 6), n = w >= 130 ? 2 : 1;
+  for (let i = 0; i < n; i++) parts.push(mbBox(n === 1 ? 0 : (i ? 1 : -1) * w / 4, 46, -d / 2 + hb + 20, pw, 11, 35, "#ffffff"));
+  parts.push(mbBox(0, 30, hb / 2 + 30, w + 2, 20, d - hb - 60 - 4, duvet)); // couette (retombe sur les côtés)
+  return parts;
+}
+function tableParts(w, d, color) {
+  const top = 75, t = 3, leg = 6, inset = Math.min(6, w / 8, d / 8), dark = shadeHex(color, 0.75), parts = [];
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => parts.push(mbBox(sx * (w / 2 - inset), 0, sz * (d / 2 - inset), leg, top - t - 4, leg, dark)));
+  parts.push(mbBox(0, top - t - 4, 0, w - 2 * inset, 4, d - 2 * inset, dark)); // ceinture
+  parts.push(mbBox(0, top - t, 0, w, t, d, color));
+  return parts;
+}
+function deskParts(w, d, color) {
+  const top = 75, t = 3, dark = shadeHex(color, 0.78), parts = [];
+  [-1, 1].forEach((sx) => parts.push(mbBox(sx * (w / 2 - 1.5), 0, 0, 3, top - t, d - 4, dark)));
+  parts.push(mbBox(0, 20, -d / 2 + 4, w - 6, top - t - 20, 1.5, dark)); // fond
+  parts.push(mbBox(0, top - t, 0, w, t, d, color));
+  return parts;
+}
+function toiletParts(w, d) {
+  const white = "#eef3f6", parts = [];
+  parts.push(mbBox(0, 0, d / 2 - d * 0.32, w * 0.5, 38, d * 0.5, white)); // pied de cuvette
+  parts.push(mbBox(0, 38, d / 2 - d * 0.36, w * 0.95, 4, d * 0.72, "#ffffff")); // lunette
+  parts.push(mbBox(0, 18, d / 2 - d * 0.32, w * 0.8, 20, d * 0.55, white));
+  parts.push(mbBox(0, 38, -d / 2 + 7, w, 42, 14, white)); // réservoir
+  parts.push(mbBox(0, 80, -d / 2 + 7, 6, 1.5, 4, OP_METAL)); // bouton
+  return parts;
+}
+function vanityParts(w, d) {
+  const parts = mbUnit({ w, d, plinth: 0, bodyH: 80, color: "#dfe8ee", cols: w >= 70 ? 2 : 1 });
+  parts.push(mbBox(0, 80, 0, w, 5, d, "#f4f7f9"), mbBox(0, 85, 0, w * 0.55, 0.4, d * 0.6, "#c3ced6"), mbBox(0, 85, -d / 2 + 4, 3, 14, 3, OP_METAL));
+  return parts;
+}
+function bathtubParts(w, d) {
+  const white = "#f4f7f9", t = 5, h = 55, parts = [mbBox(0, 0, 0, w, 14, d, white)];
+  parts.push(mbBox(-w / 2 + t / 2, 14, 0, t, h - 14, d, white), mbBox(w / 2 - t / 2, 14, 0, t, h - 14, d, white));
+  parts.push(mbBox(0, 14, -d / 2 + t / 2, w - 2 * t, h - 14, t, white), mbBox(0, 14, d / 2 - t / 2, w - 2 * t, h - 14, t, white));
+  parts.push(mbBox(0, 40, 0, w - 2 * t - 2, 0.5, d - 2 * t - 2, "#bfe3f2", 0.5));
+  parts.push(mbBox(w / 2 - 14, h, 0, 4, 2, 4, OP_METAL));
+  return parts;
+}
+function tvParts(w, d, h) {
+  return [mbBox(0, 0, 0, w, h, d, "#15171b"), mbBox(0, 1.5, d / 2 + 0.05, w - 3, h - 3, 0.2, "#0a0b0e"), mbBox(0, 0, -d / 2 - 0.5, w * 0.25, h * 0.4, 1, "#3a3d42")];
+}
+function wardrobeParts(w, d) {
+  return mbUnit({ w, d, plinth: 4, bodyH: 196, color: "#5a6b7a", cols: Math.max(2, Math.round(w / 50)), handle: "v" });
+}
+function rugParts(w, d, color) {
+  const b = Math.min(6, w / 10, d / 10);
+  return [mbBox(0, 0, 0, w, 1.2, d, shadeHex(color, 0.85)), mbBox(0, 1.2, 0, w - 2 * b, 0.3, d - 2 * b, color)];
+}
+function floorLampParts(w, d) {
+  const s = Math.min(w, d);
+  return [mbBox(0, 0, 0, s * 0.6, 2, s * 0.6, "#3a3d42"), mbBox(0, 2, 0, 2, 150, 2, OP_METAL), mbBox(0, 130, 0, s, 28, s, "#f2e8cf", 0.9)];
+}
+function plantParts(w, d) {
+  const s = Math.min(w, d), leaf = "#4f7d45", parts = [mbBox(0, 0, 0, s * 0.55, 28, s * 0.55, "#8b5e3c"), mbBox(0, 28, 0, 3, 30, 3, "#5a4630")];
+  [[0, 55, 0, s * 0.9, 40], [s * 0.15, 85, -s * 0.1, s * 0.7, 30], [-s * 0.15, 105, s * 0.1, s * 0.5, 22]].forEach(([x, y, z, ss, hh]) => parts.push(mbBox(x, y, z, ss, hh, ss, leaf)));
+  return parts;
+}
+function mirrorParts(w, d, h) {
+  return [mbBox(0, 0, 0, w, h, d, "#3a3d42"), mbBox(0, 1.5, d / 2 + 0.05, w - 3, h - 3, 0.3, "#cfe0ea", 0.8)];
+}
+function pendantParts(w, d, h) {
+  const s = Math.min(w, d);
+  return [mbBox(0, 20, 0, s, h - 20, s, "#f2e8cf", 0.9), mbBox(0, 0, 0, 0.6, 20, 0.6, "#3a3d42"), mbBox(0, 19, 0, s * 0.3, 2, s * 0.3, OP_METAL)];
+}
+function washerParts(w, d) {
+  return [mbBox(0, 0, 0, w, 85, d, "#f4f4f2"), mbBox(0, 18, d / 2 + 0.2, Math.min(w - 12, 44), Math.min(w - 12, 44), 0.6, "#2a2f36"), mbBox(0, 18 + 6, d / 2 + 0.6, Math.min(w - 20, 32), Math.min(w - 20, 32), 0.4, "#9fb7c6", 0.7), mbBox(0, 76, d / 2 + 0.2, w - 10, 6, 0.6, "#d0d3d8")];
+}
 // Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
 function chairParts(w, d, color) {
   const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
@@ -326,23 +405,31 @@ const CATALOG = [
   { id: "bay-window", name: "Baie vitrée", group: "Ouvertures", band: "opening", symbol: "bay", parts: (w, d) => bayParts(w, d, 220), color: "#cfe8f0", height: 220, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 120, widthMax: 300, widthStep: 10, defaultWidth: 180 },
   { id: "shower-screen", name: "Paroi de douche", group: "Ouvertures", band: "opening", symbol: "glasswall", parts: (w, d) => glassScreenParts(w, d, 200), color: "#cfe8f0", height: 200, yOffset: 0, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 70, widthMax: 140, widthStep: 10, defaultWidth: 90 },
   // --- Salle de bain ---
-  { id: "bathtub", name: "Baignoire", group: "Salle de bain", band: "floor", symbol: "bathtub", color: "#dfe8ee", height: 55, yOffset: 0, depthMin: 70, depthMax: 80, depthStep: 5, defaultDepth: 70, widthMin: 150, widthMax: 180, widthStep: 10, defaultWidth: 170 },
+  { id: "bathtub", parts: bathtubParts, name: "Baignoire", group: "Salle de bain", band: "floor", symbol: "bathtub", color: "#dfe8ee", height: 55, yOffset: 0, depthMin: 70, depthMax: 80, depthStep: 5, defaultDepth: 70, widthMin: 150, widthMax: 180, widthStep: 10, defaultWidth: 170 },
   { id: "shower-tray", name: "Bac de douche", group: "Salle de bain", band: "floor", symbol: "showertray", color: "#dfe8ee", height: 5, yOffset: 0, depthMin: 80, depthMax: 100, depthStep: 10, defaultDepth: 90, widthMin: 80, widthMax: 100, widthStep: 10, defaultWidth: 90 },
-  { id: "toilet", name: "WC", group: "Salle de bain", band: "floor", symbol: "toilet", color: "#eef3f6", height: 40, yOffset: 0, depthMin: 40, depthMax: 45, depthStep: 5, defaultDepth: 42, widthMin: 35, widthMax: 40, widthStep: 5, defaultWidth: 38 },
-  { id: "vanity", name: "Meuble vasque", group: "Salle de bain", band: "floor", symbol: "sink", color: "#dfe8ee", height: 85, yOffset: 0, depthMin: 45, depthMax: 55, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 120, widthStep: 10, defaultWidth: 80 },
+  { id: "toilet", parts: toiletParts, name: "WC", group: "Salle de bain", band: "floor", symbol: "toilet", color: "#eef3f6", height: 80, yOffset: 0, depthMin: 40, depthMax: 45, depthStep: 5, defaultDepth: 42, widthMin: 35, widthMax: 40, widthStep: 5, defaultWidth: 38 },
+  { id: "vanity", parts: vanityParts, name: "Meuble vasque", group: "Salle de bain", band: "floor", symbol: "sink", color: "#dfe8ee", height: 85, yOffset: 0, depthMin: 45, depthMax: 55, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 120, widthStep: 10, defaultWidth: 80 },
   // --- Séjour / Chambre ---
   { id: "sofa", name: "Canapé", group: "Séjour / Chambre", band: "floor", symbol: "sofa", color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 85, depthMax: 95, depthStep: 5, defaultDepth: 90, widthMin: 140, widthMax: 280, widthStep: 10, defaultWidth: 200 },
   { id: "armchair", name: "Fauteuil", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#7c9473", parts: (w, d) => sofaParts(w, d, "#7c9473"), height: 85, yOffset: 0, depthMin: 80, depthMax: 80, depthStep: 0, defaultDepth: 80, widthMin: 75, widthMax: 90, widthStep: 5, defaultWidth: 80 },
   { id: "coffee-table", name: "Table basse", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", parts: (w, d) => coffeeTableParts(w, d, "#b98a52"), height: 40, yOffset: 0, depthMin: 60, depthMax: 90, depthStep: 10, defaultDepth: 80, widthMin: 90, widthMax: 120, widthStep: 10, defaultWidth: 100, roundable: true },
-  { id: "table", name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
+  { id: "table", parts: (w, d) => tableParts(w, d, "#b98a52"), name: "Table", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#b98a52", height: 75, yOffset: 0, depthMin: 70, depthMax: 100, depthStep: 10, defaultDepth: 80, widthMin: 100, widthMax: 220, widthStep: 10, defaultWidth: 140, roundable: true },
   { id: "chair", name: "Chaise", group: "Séjour / Chambre", band: "floor", symbol: "chair", color: "#7c9473", height: 90, yOffset: 0, parts: (w, d) => chairParts(w, d, "#7c9473"), depthMin: 45, depthMax: 45, depthStep: 0, defaultDepth: 45, widthMin: 45, widthMax: 45, widthStep: 0, defaultWidth: 45 },
-  { id: "bed", name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 45, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
-  { id: "nightstand", name: "Chevet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#8a7f9e", height: 50, yOffset: 0, depthMin: 35, depthMax: 40, depthStep: 5, defaultDepth: 38, widthMin: 35, widthMax: 45, widthStep: 5, defaultWidth: 40 },
-  { id: "wardrobe", name: "Armoire", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 200, yOffset: 0, depthMin: 55, depthMax: 60, depthStep: 5, defaultDepth: 58, widthMin: 80, widthMax: 200, widthStep: 10, defaultWidth: 120 },
-  { id: "dresser", name: "Commode", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 80, widthMax: 140, widthStep: 10, defaultWidth: 100 },
-  { id: "buffet", name: "Buffet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 120, widthMax: 200, widthStep: 10, defaultWidth: 160 },
-  { id: "desk", name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
-  { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
+  { id: "bed", parts: (w, d) => bedParts(w, d, "#8a7f9e"), name: "Lit", group: "Séjour / Chambre", band: "floor", symbol: "bed", color: "#8a7f9e", height: 100, yOffset: 0, depthMin: 190, depthMax: 200, depthStep: 10, defaultDepth: 200, widthMin: 90, widthMax: 180, widthStep: 10, defaultWidth: 140 },
+  { id: "nightstand", parts: (w, d) => mbUnit({ w, d, plinth: 6, bodyH: 44, color: "#8a7f9e", rows: [1, 1], handle: "h" }), name: "Chevet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#8a7f9e", height: 50, yOffset: 0, depthMin: 35, depthMax: 40, depthStep: 5, defaultDepth: 38, widthMin: 35, widthMax: 45, widthStep: 5, defaultWidth: 40 },
+  { id: "wardrobe", parts: wardrobeParts, name: "Armoire", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 200, yOffset: 0, depthMin: 55, depthMax: 60, depthStep: 5, defaultDepth: 58, widthMin: 80, widthMax: 200, widthStep: 10, defaultWidth: 120 },
+  { id: "dresser", parts: (w, d) => mbUnit({ w, d, plinth: 8, bodyH: 77, color: "#5a6b7a", rows: [1, 1, 1], handle: "h" }), name: "Commode", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 80, widthMax: 140, widthStep: 10, defaultWidth: 100 },
+  { id: "buffet", parts: (w, d) => mbUnit({ w, d, plinth: 8, bodyH: 77, color: "#5a6b7a", cols: Math.max(2, Math.round(w / 50)), handle: "v" }), name: "Buffet", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#5a6b7a", height: 85, yOffset: 0, depthMin: 45, depthMax: 50, depthStep: 5, defaultDepth: 48, widthMin: 120, widthMax: 200, widthStep: 10, defaultWidth: 160 },
+  { id: "desk", parts: (w, d) => deskParts(w, d, "#6a8caf"), name: "Bureau", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a8caf", height: 75, yOffset: 0, depthMin: 60, depthMax: 70, depthStep: 5, defaultDepth: 65, widthMin: 100, widthMax: 160, widthStep: 10, defaultWidth: 120 },
+  { id: "tv", parts: (w, d) => tvParts(w, d, 55), name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
+  { id: "rug", name: "Tapis", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#c8b8a0", parts: (w, d) => rugParts(w, d, "#c8b8a0"), height: 1.5, yOffset: 0, depthMin: 50, depthMax: 400, depthStep: 10, defaultDepth: 140, widthMin: 50, widthMax: 500, widthStep: 10, defaultWidth: 200, roundable: true },
+  { id: "bookcase", name: "Bibliothèque", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#c9a26a", parts: (w, d) => drShelfUnit({ w, d, h: 200, shelves: 5, color: "#c9a26a" }), height: 200, yOffset: 0, depthMin: 25, depthMax: 45, depthStep: 5, defaultDepth: 32, widthMin: 40, widthMax: 200, widthStep: 10, defaultWidth: 90 },
+  { id: "pouf", name: "Pouf", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#a8805a", parts: (w, d) => [mbBox(0, 0, 0, w, 36, d, "#a8805a"), mbBox(0, 36, 0, w - 4, 4, d - 4, "#bf966d")], height: 40, yOffset: 0, depthMin: 30, depthMax: 80, depthStep: 5, defaultDepth: 45, widthMin: 30, widthMax: 80, widthStep: 5, defaultWidth: 45 },
+  { id: "floor-lamp", name: "Lampadaire", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#f2e8cf", parts: floorLampParts, height: 158, yOffset: 0, depthMin: 25, depthMax: 45, depthStep: 5, defaultDepth: 35, widthMin: 25, widthMax: 45, widthStep: 5, defaultWidth: 35 },
+  { id: "pendant", name: "Suspension", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#f2e8cf", parts: (w, d) => pendantParts(w, d, 60), height: 60, yOffset: 180, depthMin: 20, depthMax: 80, depthStep: 5, defaultDepth: 40, widthMin: 20, widthMax: 80, widthStep: 5, defaultWidth: 40, note: "Luminaire suspendu : hauteur de fixation = point d'accroche au plafond." },
+  { id: "plant", name: "Plante en pot", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#4f7d45", parts: plantParts, height: 125, yOffset: 0, depthMin: 25, depthMax: 80, depthStep: 5, defaultDepth: 40, widthMin: 25, widthMax: 80, widthStep: 5, defaultWidth: 40 },
+  { id: "mirror", name: "Miroir mural", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#cfe0ea", parts: (w, d) => mirrorParts(w, d, 150), height: 150, yOffset: 20, depthMin: 3, depthMax: 3, depthStep: 0, defaultDepth: 3, widthMin: 30, widthMax: 200, widthStep: 10, defaultWidth: 60 },
+  { id: "washer", name: "Lave-linge", group: "Salle de bain", band: "floor", symbol: null, color: "#f4f4f2", parts: washerParts, height: 85, yOffset: 0, depthMin: 45, depthMax: 65, depthStep: 5, defaultDepth: 60, widthMin: 55, widthMax: 65, widthStep: 5, defaultWidth: 60 },
   { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
   { id: "shelf", name: "Étagère", group: "Cuisine — Meubles", band: "wall", symbol: null, color: "#c9a26a", height: 2.5, yOffset: 150, depthMin: 10, depthMax: 60, depthStep: 5, defaultDepth: 25, widthMin: 20, widthMax: 300, widthStep: 10, defaultWidth: 80, note: "Planche murale : largeur, profondeur et hauteur de fixation libres." },
   { id: "glass-partition", name: "Paroi vitrée toute hauteur", group: "Ouvertures", band: "opening", symbol: "glasswall", fullHeight: true, parts: (w, d) => glassPartitionParts(w, d, 240), color: "#cfe8f0", height: 240, yOffset: 0, depthMin: 4, depthMax: 10, depthStep: 1, defaultDepth: 5, widthMin: 40, widthMax: 600, widthStep: 10, defaultWidth: 150, note: "Cloison vitrée du sol au plafond (hauteur de la pièce), avec montants et meneaux." },
@@ -826,7 +913,7 @@ function buildBoxArrays(w, h, d) {
 // --- Évier et plaque de cuisson : ils traversent toujours le plan de travail qui les porte ---
 // Le plan est découpé (trou de l'empreinte), l'évier s'enfonce dans une cuve, la plaque est encastrée.
 // Tout est calculé dans le repère local de l'objet : x = largeur (u), z = profondeur (v).
-const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack" || e.id === "radiator" || e.id === "towel-radiator"; // objets muraux à hauteur de fixation réglable
+const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack" || e.id === "radiator" || e.id === "towel-radiator" || e.id === "pendant" || e.id === "mirror"; // objets muraux à hauteur de fixation réglable
 const isWorktop = (e) => e.id === "worktop" || e.id.startsWith("mb-pdt");
 const isCutout = (e) => e.id === "sink" || e.id === "stove";
 const SINK_DEPTH = 18;
