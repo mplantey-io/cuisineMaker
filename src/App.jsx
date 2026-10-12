@@ -198,6 +198,44 @@ const MOBALPA_CATALOG = [
   mbEntry({ id: "mb-joue", name: "Joue de finition bas", group: G_FIN, band: "floor", color: C_BAS, height: 90.3, d: 60.5, wMin: 1.8, wMax: 1.8, wDef: 1.8, note: `Joue 60,5 × 90,3 cm, ép. 1,8 cm. ${N_SRC}` }),
 ];
 
+// --- Dressing / rangements : caissons génériques (cotes courantes, non issues d'un catalogue constructeur) ---
+const G_DR = "Dressing — Caissons", C_DR = "#e3ded3", N_DR = "Caisson générique aux cotes courantes (estimées) : largeur et profondeur libres.";
+// Caisson ouvert : fond, deux montants, dessus, dessous et tablettes régulières.
+function drShelfUnit({ w, d, h, shelves, color }) {
+  const t = 1.8, parts = [mbBox(0, 0, -d / 2 + 0.8, w, h, 1.6, MB_BODY), mbBox(-w / 2 + t / 2, 0, 0, t, h, d, color), mbBox(w / 2 - t / 2, 0, 0, t, h, d, color)];
+  for (let i = 0; i <= shelves + 1; i++) parts.push(mbBox(0, i * ((h - t) / (shelves + 1)), 0, w - 2 * t, t, d, color));
+  return parts;
+}
+// Penderie ouverte : montants, dessus, tablette haute et tringle.
+function drHanging({ w, d, h, color }) {
+  const t = 1.8, parts = [mbBox(0, 0, -d / 2 + 0.8, w, h, 1.6, MB_BODY), mbBox(-w / 2 + t / 2, 0, 0, t, h, d, color), mbBox(w / 2 - t / 2, 0, 0, t, h, d, color)];
+  parts.push(mbBox(0, h - t, 0, w - 2 * t, t, d, color), mbBox(0, h - 30, 0, w - 2 * t, t, d, color));
+  parts.push(mbBox(0, h - 32, 0, w - 2 * t, 2.5, 2.5, MB_HANDLE));
+  return parts;
+}
+const drEntry = (o) => mbEntry({ group: G_DR, band: "floor", color: C_DR, wStep: 5, ...o });
+const DRESSING_CATALOG = [
+  drEntry({ id: "dr-commode-3t", name: "Commode 3 tiroirs", height: 85, d: 50, dMin: 35, dMax: 65, wMin: 60, wMax: 160, wDef: 100,
+    parts: (w, d) => mbUnit({ w, d, plinth: 8, bodyH: 77, color: C_DR, rows: [1, 1, 1], handle: "h" }), note: `85 cm de haut. ${N_DR}` }),
+  drEntry({ id: "dr-commode-4t", name: "Commode haute 4 tiroirs", height: 105, d: 50, dMin: 35, dMax: 65, wMin: 50, wMax: 120, wDef: 80,
+    parts: (w, d) => mbUnit({ w, d, plinth: 8, bodyH: 97, color: C_DR, rows: [1, 1, 1, 1], handle: "h" }), note: `105 cm de haut. ${N_DR}` }),
+  drEntry({ id: "dr-bas-portes", name: "Caisson bas à portes", height: 85, d: 50, dMin: 35, dMax: 65, wMin: 40, wMax: 160, wDef: 100,
+    parts: (w, d) => mbUnit({ w, d, plinth: 8, bodyH: 77, color: C_DR, cols: w >= 70 ? 2 : 1 }), note: `85 cm de haut. ${N_DR}` }),
+  drEntry({ id: "dr-colonne-portes", name: "Caisson haut à portes", height: 200, d: 60, dMin: 35, dMax: 65, wMin: 40, wMax: 120, wDef: 80,
+    parts: (w, d) => mbUnit({ w, d, plinth: 5, bodyH: 195, color: C_DR, cols: w >= 70 ? 2 : 1 }), note: `200 cm de haut. ${N_DR}` }),
+  drEntry({ id: "dr-colonne-tiroirs", name: "Caisson haut à tiroirs", height: 200, d: 60, dMin: 35, dMax: 65, wMin: 40, wMax: 120, wDef: 60,
+    parts: (w, d) => mbUnit({ w, d, plinth: 5, bodyH: 195, color: C_DR, rows: [1, 1, 1, 1, 1, 1], handle: "h" }), note: `200 cm de haut. ${N_DR}` }),
+  drEntry({ id: "dr-etageres", name: "Caisson ouvert à étagères", height: 200, d: 40, dMin: 25, dMax: 60, wMin: 30, wMax: 120, wDef: 60,
+    parts: (w, d) => drShelfUnit({ w, d, h: 200, shelves: 5, color: C_DR }), note: `200 cm de haut, 5 tablettes. ${N_DR}` }),
+  drEntry({ id: "dr-penderie", name: "Penderie ouverte (tringle)", height: 200, d: 55, dMin: 50, dMax: 65, wMin: 50, wMax: 160, wDef: 100,
+    parts: (w, d) => drHanging({ w, d, h: 200, color: C_DR }), note: `200 cm de haut, tringle à 168 cm. ${N_DR}` }),
+  drEntry({ id: "dr-haut", name: "Surmeuble de dressing", band: "wall", height: 40, yOffset: 200, d: 60, dMin: 35, dMax: 65, wMin: 40, wMax: 160, wDef: 80,
+    parts: (w, d) => mbUnit({ w, d, plinth: 0, bodyH: 40, color: C_DR, cols: w >= 70 ? 2 : 1 }), note: `40 cm de haut, posé à 200 cm. ${N_DR}` }),
+  drEntry({ id: "dr-banquette-coffre", name: "Banquette coffre", height: 47, d: 45, dMin: 35, dMax: 60, wMin: 60, wMax: 250, wDef: 120,
+    parts: (w, d) => mbUnit({ w, d, plinth: 4, bodyH: 36, color: C_DR, cols: w >= 100 ? 2 : 1, handle: "h" }).concat(mbBox(0, 40, 0, w, 7, d, "#6f8fa8")),
+    note: `Banquette de rangement avec façades et assise rembourrée (47 cm). ${N_DR}` }),
+];
+
 const CATALOG = [
   // --- Cuisine — Meubles ---
   { id: "base-cabinet", name: "Meuble bas", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#3b6ea5", height: 85, yOffset: 0, depthMin: 60, depthMax: 60, depthStep: 0, defaultDepth: 60, widthMin: 30, widthMax: 120, widthStep: 5, defaultWidth: 60 },
@@ -240,9 +278,10 @@ const CATALOG = [
   { id: "shelf", name: "Étagère", group: "Cuisine — Meubles", band: "wall", symbol: null, color: "#c9a26a", height: 2.5, yOffset: 150, depthMin: 10, depthMax: 60, depthStep: 5, defaultDepth: 25, widthMin: 20, widthMax: 300, widthStep: 10, defaultWidth: 80, note: "Planche murale : largeur, profondeur et hauteur de fixation libres." },
   { id: "banquette", name: "Banquette", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#6f8fa8", height: 45, yOffset: 0, depthMin: 40, depthMax: 60, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 150, roundable: true },
   ...MOBALPA_CATALOG,
+  ...DRESSING_CATALOG,
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
-const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", G_BAS, G_HAUT, G_COL, G_FIN, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
+const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", G_BAS, G_HAUT, G_COL, G_FIN, G_DR, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
 const PLAN_GROUPS = ["Ouvertures", "Réseaux"];
 const FURNITURE_GROUPS = GROUPS.filter((g) => !PLAN_GROUPS.includes(g));
 const isPlanEntry = (entry) => PLAN_GROUPS.includes(entry.group);
