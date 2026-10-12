@@ -62,6 +62,30 @@ function glassScreenParts(w, d, h) {
     mbBox(0, 0, 0, w, 2, 2, OP_METAL), mbBox(0, h - 2, 0, w, 2, 2, OP_METAL),
   ];
 }
+// Paroi vitrée toute hauteur : vitrage, rails haut et bas, montants aux extrémités et meneaux tous les ~110 cm.
+function glassPartitionParts(w, d, h) {
+  const parts = [mbBox(0, 2, 0, Math.max(1, w - 4), h - 4, 0.8, OP_GLASS, 0.3), mbBox(0, 0, 0, w, 2, Math.max(d, 3), OP_METAL), mbBox(0, h - 2, 0, w, 2, Math.max(d, 3), OP_METAL)];
+  const n = Math.max(1, Math.round(w / 110));
+  for (let i = 0; i <= n; i++) parts.push(mbBox(-w / 2 + 1 + (i * (w - 2)) / n, 2, 0, 2, h - 4, Math.max(d, 3), OP_METAL));
+  return parts;
+}
+// Porte-manteau mural : planche et patères. Porte-manteau sur pied : base, mât et deux étages de crochets.
+function coatRackWallParts(w, d) {
+  const parts = [mbBox(0, 0, -d / 2 + 1, w, 10, 2, "#b98a52")];
+  const n = Math.max(2, Math.floor(w / 20));
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + (w * (i + 0.5)) / n;
+    parts.push(mbBox(x, 4.5, -d / 2 + 2 + (d - 2) / 2, 1.2, 1.2, d - 2, OP_METAL), mbBox(x, 4.5, d / 2 - 0.6, 1.4, 4, 1.2, OP_METAL));
+  }
+  return parts;
+}
+function coatRackStandParts(w, d) {
+  const s = Math.min(w, d), arm = Math.max(4, s / 2 - 3), parts = [mbBox(0, 0, 0, s, 2, s, "#3a3d42"), mbBox(0, 2, 0, 3.5, 168, 3.5, "#6a5a45")];
+  [165, 150].forEach((y) => parts.push(
+    mbBox(arm / 2, y, 0, arm, 1.5, 1.5, OP_METAL), mbBox(-arm / 2, y, 0, arm, 1.5, 1.5, OP_METAL),
+    mbBox(0, y, arm / 2, 1.5, 1.5, arm, OP_METAL), mbBox(0, y, -arm / 2, 1.5, 1.5, arm, OP_METAL)));
+  return parts;
+}
 // Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
 function chairParts(w, d, color) {
   const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
@@ -276,6 +300,9 @@ const CATALOG = [
   { id: "tv", name: "Télévision", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#20242b", height: 55, yOffset: 100, depthMin: 6, depthMax: 6, depthStep: 0, defaultDepth: 6, widthMin: 80, widthMax: 160, widthStep: 10, defaultWidth: 110 },
   { id: "worktop", name: "Plan de travail", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#c9a26a", height: 4, yOffset: 85, depthMin: 40, depthMax: 90, depthStep: 5, defaultDepth: 60, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 200, roundable: true },
   { id: "shelf", name: "Étagère", group: "Cuisine — Meubles", band: "wall", symbol: null, color: "#c9a26a", height: 2.5, yOffset: 150, depthMin: 10, depthMax: 60, depthStep: 5, defaultDepth: 25, widthMin: 20, widthMax: 300, widthStep: 10, defaultWidth: 80, note: "Planche murale : largeur, profondeur et hauteur de fixation libres." },
+  { id: "glass-partition", name: "Paroi vitrée toute hauteur", group: "Ouvertures", band: "opening", symbol: "glasswall", fullHeight: true, parts: (w, d) => glassPartitionParts(w, d, 240), color: "#cfe8f0", height: 240, yOffset: 0, depthMin: 4, depthMax: 10, depthStep: 1, defaultDepth: 5, widthMin: 40, widthMax: 600, widthStep: 10, defaultWidth: 150, note: "Cloison vitrée du sol au plafond (hauteur de la pièce), avec montants et meneaux." },
+  { id: "coat-rack", name: "Porte-manteau mural", group: "Séjour / Chambre", band: "wall", symbol: null, color: "#b98a52", parts: coatRackWallParts, height: 10, yOffset: 160, depthMin: 8, depthMax: 12, depthStep: 1, defaultDepth: 9, widthMin: 20, widthMax: 200, widthStep: 10, defaultWidth: 80, note: "Planche avec patères : hauteur de fixation réglable." },
+  { id: "coat-stand", name: "Porte-manteau sur pied", group: "Séjour / Chambre", band: "floor", symbol: null, color: "#6a5a45", parts: coatRackStandParts, height: 170, yOffset: 0, depthMin: 30, depthMax: 50, depthStep: 5, defaultDepth: 40, widthMin: 30, widthMax: 50, widthStep: 5, defaultWidth: 40 },
   { id: "banquette", name: "Banquette", group: "Cuisine — Meubles", band: "floor", symbol: null, color: "#6f8fa8", height: 45, yOffset: 0, depthMin: 40, depthMax: 60, depthStep: 5, defaultDepth: 50, widthMin: 60, widthMax: 300, widthStep: 10, defaultWidth: 150, roundable: true },
   ...MOBALPA_CATALOG,
   ...DRESSING_CATALOG,
@@ -518,11 +545,12 @@ function buildFloorPatternDefString(id, floor) {
   return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${geo.tileWidth}" height="${geo.tileHeight}" patternTransform="rotate(${floor.rotation || 0})"><rect width="${geo.tileWidth}" height="${geo.tileHeight}" fill="${geo.background}"/>${rectsSvg}${polysSvg}${linesSvg}</pattern>`;
 }
 // --- géométrie d'un objet à partir de x, y, angle (tout est libre) ---
-function computeItemGeometry(item) {
+function computeItemGeometry(item, roomHeight) {
   let entry = catalogById[item.catalogId];
   if (!entry) return null;
   // Plateau réglé en hauteur (table) : on décale le plateau et on lui ajoute des pieds.
-  if (typeof item.topHeight === "number" && (isWorktop(entry) || entry.id === "shelf")) entry = { ...entry, yOffset: Math.max(0, item.topHeight - entry.height), withLegs: isWorktop(entry) };
+  if (typeof item.topHeight === "number" && (isWorktop(entry) || isMounted(entry))) entry = { ...entry, yOffset: Math.max(0, item.topHeight - entry.height), withLegs: isWorktop(entry) };
+  if (entry.fullHeight && roomHeight > 0) { const H = roomHeight; entry = { ...entry, height: H, parts: (w, d) => glassPartitionParts(w, d, H) }; }
   const rad = ((item.angleDeg || 0) * Math.PI) / 180;
   const u = { x: Math.cos(rad), y: Math.sin(rad) };
   const v = { x: -Math.sin(rad), y: Math.cos(rad) };
@@ -748,6 +776,7 @@ function buildBoxArrays(w, h, d) {
 // --- Évier et plaque de cuisson : ils traversent toujours le plan de travail qui les porte ---
 // Le plan est découpé (trou de l'empreinte), l'évier s'enfonce dans une cuve, la plaque est encastrée.
 // Tout est calculé dans le repère local de l'objet : x = largeur (u), z = profondeur (v).
+const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack"; // objets muraux à hauteur de fixation réglable
 const isWorktop = (e) => e.id === "worktop" || e.id.startsWith("mb-pdt");
 const isCutout = (e) => e.id === "sink" || e.id === "stove";
 const SINK_DEPTH = 18;
@@ -863,7 +892,7 @@ function carveSinkCavities(item, boxes, all) {
 }
 // --- Murs 3D : pleins et colorés, visibles seulement de l'intérieur de la pièce (face arrière non
 // dessinée) et percés là où une porte, une fenêtre ou une baie est posée sur le mur. ---
-const isWallOpening = (e) => e.band === "opening" && e.id !== "shower-screen";
+const isWallOpening = (e) => e.band === "opening" && e.id !== "shower-screen" && e.id !== "glass-partition";
 function pointInPoly(p, verts) {
   let inside = false;
   for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
@@ -1025,7 +1054,7 @@ function exportFloorPlanSVG(rooms, items) {
   const perRoom = rooms.map((room) => {
     const xs = room.vertices.map((v) => v.x), ys = room.vertices.map((v) => v.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    const roomItems = items.filter((it) => it.roomId === room.id).map(computeItemGeometry).filter(Boolean);
+    const roomItems = items.filter((it) => it.roomId === room.id).map((it) => computeItemGeometry(it, room.height)).filter(Boolean);
     return { room, minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY, items: roomItems, area: shoelaceAreaM2(room.vertices) };
   });
 
@@ -1364,7 +1393,7 @@ export default function KitchenDesigner() {
   const edges = useMemo(() => (activeRoom ? roomEdges(activeRoom.vertices) : []), [activeRoom]);
 
   const roomItems = useMemo(() => items.filter((it) => it.roomId === activeRoomId), [items, activeRoomId]);
-  const roomItemsComputed = useMemo(() => roomItems.map(computeItemGeometry).filter(Boolean), [roomItems]);
+  const roomItemsComputed = useMemo(() => roomItems.map((it) => computeItemGeometry(it, activeRoom?.height)).filter(Boolean), [roomItems, activeRoom?.height]);
   const visibleItems = useMemo(() => roomItemsComputed.filter((it) => isPlanEntry(it.catalogEntry) === (mode === "plan")), [roomItemsComputed, mode]);
 
   const bounds = useMemo(() => {
@@ -2366,13 +2395,13 @@ export default function KitchenDesigner() {
                     <label>Angle (°)</label>
                     <input type="number" value={raw.angleDeg} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => updateItem(item.uid, { angleDeg: Number(ev.target.value) || 0 })} />
                   </div>
-                  {(isWorktop(e) || e.id === "shelf") && (
+                  {(isWorktop(e) || isMounted(e)) && (
                     <div className="field" style={{ margin: "8px 0 0" }}>
-                      <label>{e.id === "shelf" ? "Hauteur de fixation (cm) — dessus de l'étagère" : "Hauteur du dessus (cm) — 75 pour une table, pieds ajoutés"}</label>
+                      <label>{isMounted(e) ? "Hauteur de fixation (cm) — dessus de l'objet" : "Hauteur du dessus (cm) — 75 pour une table, pieds ajoutés"}</label>
                       <div style={{ display: "flex", gap: 4 }}>
                         <DimInput value={item.catalogEntry.yOffset + item.catalogEntry.height} onCommit={(n) => updateItem(item.uid, { topHeight: Math.max(e.height, n) })} />
-                        {e.id !== "shelf" && <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: 75 }); }}>Table</button>}
-                        {e.id !== "shelf" && <button className="btn" disabled={typeof raw.topHeight !== "number"} onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: undefined }); }}>Standard</button>}
+                        {!isMounted(e) && <button className="btn" onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: 75 }); }}>Table</button>}
+                        {!isMounted(e) && <button className="btn" disabled={typeof raw.topHeight !== "number"} onClick={(ev) => { ev.stopPropagation(); updateItem(item.uid, { topHeight: undefined }); }}>Standard</button>}
                       </div>
                     </div>
                   )}
