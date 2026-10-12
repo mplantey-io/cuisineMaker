@@ -214,6 +214,73 @@ function pendantParts(w, d, h) {
 function washerParts(w, d) {
   return [mbBox(0, 0, 0, w, 85, d, "#f4f4f2"), mbBox(0, 18, d / 2 + 0.2, Math.min(w - 12, 44), Math.min(w - 12, 44), 0.6, "#2a2f36"), mbBox(0, 18 + 6, d / 2 + 0.6, Math.min(w - 20, 32), Math.min(w - 20, 32), 0.4, "#9fb7c6", 0.7), mbBox(0, 76, d / 2 + 0.2, w - 10, 6, 0.6, "#d0d3d8")];
 }
+
+// --- Robinetterie et réseaux (dimensions courantes, détails simplifiés). Avant de l'objet = +z, mur = -z. ---
+const CHROME = "#c9cdd2", PLATE = "#f4f4f2";
+// Mitigeur à bec (évier / lavabo) : embase, corps, bec en col de cygne et manette.
+function faucetParts(w, d, h) {
+  const bz = -d / 2 + 3, nz = d / 2 - 3, parts = [mbCyl(0, 0, bz, 4.5, 2, 4.5, CHROME), mbBox(0, 2, bz, 2.6, h - 6, 2.6, CHROME)];
+  parts.push(mbBox(0, h - 4.5, (bz + nz) / 2, 2.4, 2.4, nz - bz + 2.6, CHROME), mbBox(0, h - 9.5, nz, 2.4, 5, 2.4, CHROME));
+  parts.push(mbBox(Math.min(3.5, w / 2), Math.max(6, h * 0.45), bz, Math.min(6, w), 1.6, 1.6, CHROME));
+  return parts;
+}
+// Robinet de bord de baignoire : embase, bec central et deux manettes.
+function bathFaucetParts(w, d, h) {
+  const parts = [mbBox(0, 0, 0, w, 1.5, d, CHROME), mbBox(0, 1.5, -d / 2 + 3, 3, h - 5, 3, CHROME), mbBox(0, h - 5, 0, 3, 2.5, d - 3, CHROME), mbBox(0, h - 7.5, d / 2 - 3, 3, 3, 3, CHROME)];
+  [-1, 1].forEach((sx) => parts.push(mbBox(sx * (w / 2 - 3), 1.5, -d / 2 + 3, 2.5, h * 0.35, 2.5, CHROME), mbBox(sx * (w / 2 - 3), 1.5 + h * 0.35, -d / 2 + 3, 5, 1.5, 2.5, CHROME)));
+  return parts;
+}
+// Colonne de douche : rail, mitigeur, bras et pommeau fixe, support de douchette.
+function showerColumnParts(w, d, h) {
+  const bz = -d / 2 + 2, parts = [mbBox(0, 0, bz, 3, h, 3, CHROME), mbBox(0, h * 0.45, -d / 2 + 4.5, Math.min(8, w), 10, 5, CHROME), mbBox(Math.min(5.5, w / 2), h * 0.5, -d / 2 + 4.5, 5, 1.6, 1.6, CHROME)];
+  const L = d - 10;
+  parts.push(mbBox(0, h - 3, -d / 2 + 3 + L / 2, 2, 2, L, CHROME), mbCyl(0, h - 5, d / 2 - 8, Math.min(w, 22), 2, Math.min(w, 22), CHROME));
+  parts.push(mbBox(0, h * 0.7, -d / 2 + 5, 5, 9, 5, CHROME), mbCyl(0, h * 0.7 + 9, -d / 2 + 5, 3.2, 14, 3.2, "#9aa0a6"), mbCyl(0, h * 0.7 + 23, -d / 2 + 5, 7, 3, 7, CHROME));
+  return parts;
+}
+// Mitigeur de douche mural : platine, corps, manettes, sortie basse.
+function wallMixerParts(w, d, h) {
+  const parts = [mbBox(0, h * 0.35, -d / 2 + 1, w, h * 0.65, 2, CHROME), mbBox(0, h * 0.4, -d / 2 + 4, w * 0.6, h * 0.5, 4, CHROME)];
+  [-1, 1].forEach((sx) => parts.push(mbBox(sx * w * 0.32, h * 0.6, -d / 2 + 7, 2, 2, 3, CHROME)));
+  parts.push(mbBox(0, 0, -d / 2 + 4, 2.2, h * 0.4, 2.2, CHROME));
+  return parts;
+}
+// Pommeau de pluie : bras mural + disque.
+function rainHeadParts(w, d, h) {
+  const R = Math.min(w, d), L = d - R / 2;
+  return [mbBox(0, h - 2.5, -d / 2 + L / 2, 2.5, 2.5, L, CHROME), mbCyl(0, h - 5.5, d / 2 - R / 2, R, 2, R, CHROME), mbCyl(0, h - 6.5, d / 2 - R / 2, R - 4, 1, R - 4, "#9aa0a6")];
+}
+// Douchette sur support mural.
+function handShowerParts(w, d, h) {
+  return [mbBox(0, 0, -d / 2 + 1, w, 4, 2, CHROME), mbBox(0, 0, -d / 2 + 3.5, 3, 4, 3, CHROME), mbCyl(0, 4, -d / 2 + 4, 3.2, h - 10, 3.2, "#9aa0a6"), mbCyl(0, h - 6, -d / 2 + 4, Math.min(w, d) - 1, 3, Math.min(w, d) - 1, CHROME)];
+}
+// Prises, interrupteur : platine + organes en façade.
+function outletParts(w, h, d, kind) {
+  const parts = [mbBox(0, 0, -d / 2 + 0.5, w, h, 1, PLATE)];
+  const n = kind === "double" ? 2 : 1, cw = w / n;
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + cw * (i + 0.5);
+    if (kind === "switch") parts.push(mbBox(x, h * 0.15, d / 2 - 0.2, w * 0.45, h * 0.7, 0.6, "#e8e8e4"));
+    else if (kind === "rj45") parts.push(mbBox(x, h * 0.3, d / 2 - 0.2, w * 0.35, h * 0.4, 0.6, "#2a2f36"));
+    else if (kind === "p32") parts.push(mbBox(x, h * 0.15, d / 2 - 0.2, w * 0.7, h * 0.7, 1, "#c93a2b"));
+    else { parts.push(mbBox(x, h * 0.2, d / 2 - 0.2, cw * 0.6, h * 0.6, 0.6, "#e8e8e4")); [-1, 1].forEach((sx) => parts.push(mbBox(x + sx * cw * 0.14, h * 0.45, d / 2 + 0.2, 0.8, 1, 0.3, "#3a3d42"))); }
+  }
+  return parts;
+}
+function panelParts(w, h, d) {
+  const parts = [mbBox(0, 0, 0, w, h, d, "#e9e9e5"), mbBox(0, 2, d / 2 + 0.1, w - 4, h - 4, 0.3, "#d8d8d3")];
+  for (let i = 0; i < 3; i++) parts.push(mbBox(0, 6 + i * ((h - 14) / 2), d / 2 + 0.4, w - 8, 3, 0.6, "#8b9097"));
+  return parts;
+}
+function gasParts(d) {
+  return [mbBox(0, 0, -d / 2 + 0.5, 8, 8, 1, "#e0b400"), mbBox(0, 2.5, -d / 2 + 4, 3, 3, d - 2, "#e0b400"), mbBox(0, 1.8, d / 2 - 0.5, 4.5, 4.5, 1, "#c99a00")];
+}
+function floorDrainParts(w, d) {
+  return [mbCyl(0, 0, 0, w, 1.2, d, CHROME), mbCyl(0, 1.2, 0, w * 0.7, 0.2, d * 0.7, "#3a3d42")];
+}
+function wallDrainParts(w, d) {
+  return [mbBox(0, 0, -d / 2 + 0.5, w + 3, w + 3, 1, PLATE), mbBox(0, 1.5, -d / 2 + d / 2, w, w, d - 1, "#8b9097")];
+}
 // Chaise : assise, quatre pieds, dossier (deux montants + panneau). Le dossier est côté -z (le devant de la chaise regarde +z).
 function chairParts(w, d, color) {
   const leg = Math.min(3.5, w / 6), seatH = 45, seatT = 3, backH = 45, legColor = "#4d5b49";
@@ -403,6 +470,23 @@ const CATALOG = [
   // --- Réseaux ---
   { id: "radiator", name: "Radiateur", group: "Réseaux", band: "wall", symbol: "radiator", color: "#f4f4f2", parts: (w, d) => radiatorParts(w, d, 60), height: 60, yOffset: 12, depthMin: 8, depthMax: 16, depthStep: 1, defaultDepth: 10, widthMin: 30, widthMax: 300, widthStep: 10, defaultWidth: 100, note: "Radiateur à panneaux : largeur libre, hauteur de fixation réglable." },
   { id: "towel-radiator", name: "Radiateur sèche-serviettes", group: "Réseaux", band: "wall", symbol: "radiator", color: "#f4f4f2", parts: (w, d) => towelRadiatorParts(w, d, 150), height: 150, yOffset: 20, depthMin: 8, depthMax: 15, depthStep: 1, defaultDepth: 10, widthMin: 40, widthMax: 80, widthStep: 5, defaultWidth: 50, note: "Sèche-serviettes vertical : hauteur de fixation réglable." },
+  { id: "faucet-kitchen", name: "Mitigeur d'évier (col de cygne)", group: "Robinetterie", band: "floor", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => faucetParts(w, d, 30), height: 30, yOffset: 89, depthMin: 14, depthMax: 30, depthStep: 1, defaultDepth: 22, widthMin: 5, widthMax: 20, widthStep: 1, defaultWidth: 8, note: "Posé sur le plan de travail (89 cm) : hauteur de fixation réglable." },
+  { id: "faucet-basin", name: "Mitigeur de lavabo", group: "Robinetterie", band: "floor", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => faucetParts(w, d, 18), height: 18, yOffset: 85, depthMin: 10, depthMax: 20, depthStep: 1, defaultDepth: 14, widthMin: 4, widthMax: 15, widthStep: 1, defaultWidth: 6, note: "Posé sur le meuble vasque (85 cm)." },
+  { id: "faucet-bath", name: "Robinet de baignoire", group: "Robinetterie", band: "floor", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => bathFaucetParts(w, d, 22), height: 22, yOffset: 55, depthMin: 10, depthMax: 20, depthStep: 1, defaultDepth: 14, widthMin: 15, widthMax: 40, widthStep: 1, defaultWidth: 22, note: "Posé sur le bord de baignoire (55 cm)." },
+  { id: "shower-column", name: "Colonne de douche", group: "Robinetterie", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => showerColumnParts(w, d, 130), height: 130, yOffset: 90, depthMin: 25, depthMax: 50, depthStep: 1, defaultDepth: 35, widthMin: 15, widthMax: 40, widthStep: 1, defaultWidth: 25, note: "Colonne avec pommeau fixe, mitigeur et douchette : hauteur de fixation du haut réglable." },
+  { id: "shower-mixer", name: "Mitigeur de douche mural", group: "Robinetterie", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => wallMixerParts(w, d, 18), height: 18, yOffset: 100, depthMin: 6, depthMax: 12, depthStep: 1, defaultDepth: 8, widthMin: 12, widthMax: 24, widthStep: 1, defaultWidth: 16 },
+  { id: "rain-head", name: "Pommeau de pluie", group: "Robinetterie", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => rainHeadParts(w, d, 8), height: 8, yOffset: 205, depthMin: 25, depthMax: 60, depthStep: 1, defaultDepth: 40, widthMin: 15, widthMax: 50, widthStep: 1, defaultWidth: 25 },
+  { id: "hand-shower", name: "Douchette sur support", group: "Robinetterie", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => handShowerParts(w, d, 26), height: 26, yOffset: 110, depthMin: 6, depthMax: 12, depthStep: 1, defaultDepth: 9, widthMin: 6, widthMax: 12, widthStep: 1, defaultWidth: 8 },
+  { id: "outlet", name: "Prise électrique", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 8, d, "single"), height: 8, yOffset: 30, depthMin: 1, depthMax: 4, depthStep: 1, defaultDepth: 2, widthMin: 6, widthMax: 10, widthStep: 1, defaultWidth: 8, note: "Hauteur de fixation réglable (30 cm par défaut, 110 cm au-dessus d'un plan de travail)." },
+  { id: "outlet-double", name: "Prise double", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 8, d, "double"), height: 8, yOffset: 30, depthMin: 1, depthMax: 4, depthStep: 1, defaultDepth: 2, widthMin: 12, widthMax: 16, widthStep: 1, defaultWidth: 14 },
+  { id: "outlet-worktop", name: "Prise plan de travail", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 8, d, "double"), height: 8, yOffset: 110, depthMin: 1, depthMax: 4, depthStep: 1, defaultDepth: 2, widthMin: 12, widthMax: 16, widthStep: 1, defaultWidth: 14, note: "Prise double à 110 cm (au-dessus du plan de travail)." },
+  { id: "outlet-32a", name: "Prise 32 A (cuisson)", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 10, d, "p32"), height: 10, yOffset: 40, depthMin: 1, depthMax: 5, depthStep: 1, defaultDepth: 3, widthMin: 8, widthMax: 14, widthStep: 1, defaultWidth: 10 },
+  { id: "outlet-rj45", name: "Prise RJ45 / TV", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 8, d, "rj45"), height: 8, yOffset: 30, depthMin: 1, depthMax: 4, depthStep: 1, defaultDepth: 2, widthMin: 6, widthMax: 10, widthStep: 1, defaultWidth: 8 },
+  { id: "switch", name: "Interrupteur", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => outletParts(w, 8, d, "switch"), height: 8, yOffset: 105, depthMin: 1, depthMax: 4, depthStep: 1, defaultDepth: 2, widthMin: 6, widthMax: 10, widthStep: 1, defaultWidth: 8 },
+  { id: "panel", name: "Tableau électrique", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => panelParts(w, 45, d), height: 45, yOffset: 130, depthMin: 8, depthMax: 20, depthStep: 1, defaultDepth: 12, widthMin: 20, widthMax: 60, widthStep: 1, defaultWidth: 30 },
+  { id: "gas", name: "Arrivée de gaz", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => gasParts(d), height: 8, yOffset: 40, depthMin: 6, depthMax: 20, depthStep: 1, defaultDepth: 10, widthMin: 6, widthMax: 10, widthStep: 1, defaultWidth: 8 },
+  { id: "drain-wall", name: "Évacuation murale", group: "Réseaux", band: "wall", symbol: null, color: "#c9cdd2", mounted: true, parts: (w, d) => wallDrainParts(w, d), height: 9, yOffset: 50, depthMin: 4, depthMax: 15, depthStep: 1, defaultDepth: 8, widthMin: 4, widthMax: 10, widthStep: 1, defaultWidth: 6, note: "Évacuation d'eau (lave-linge, lave-vaisselle) : hauteur de fixation réglable." },
+  { id: "drain-floor", name: "Évacuation de sol", group: "Réseaux", band: "floor", symbol: null, color: "#c9cdd2", parts: (w, d) => floorDrainParts(w, d), height: 1.4, yOffset: 0, depthMin: 8, depthMax: 100, depthStep: 1, defaultDepth: 12, widthMin: 8, widthMax: 100, widthStep: 1, defaultWidth: 12, note: "Siphon de sol (douche à l'italienne : allonger la largeur pour une bonde linéaire)." },
   { id: "water-point", name: "Point d'eau", group: "Réseaux", band: "floor", symbol: "water", color: "#4a90b8", height: 5, yOffset: 60, depthMin: 10, depthMax: 10, depthStep: 0, defaultDepth: 10, widthMin: 10, widthMax: 10, widthStep: 0, defaultWidth: 10 },
   // --- Ouvertures ---
   { id: "door", name: "Porte", group: "Ouvertures", band: "opening", symbol: "door", parts: (w, d) => doorParts(w, d, 200), color: "#eef3f6", height: 200, yOffset: 0, depthMin: 8, depthMax: 8, depthStep: 0, defaultDepth: 8, widthMin: 60, widthMax: 100, widthStep: 5, defaultWidth: 80 },
@@ -448,7 +532,7 @@ const CATALOG = [
   ...DRESSING_CATALOG,
 ];
 const catalogById = Object.fromEntries(CATALOG.map((c) => [c.id, c]));
-const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", G_BAS, G_HAUT, G_COL, G_FIN, G_DR, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
+const GROUPS = ["Cuisine — Meubles", "Cuisine — Électroménager", "Robinetterie", G_BAS, G_HAUT, G_COL, G_FIN, G_DR, "Réseaux", "Ouvertures", "Salle de bain", "Séjour / Chambre"];
 const PLAN_GROUPS = ["Ouvertures", "Réseaux"];
 const FURNITURE_GROUPS = GROUPS.filter((g) => !PLAN_GROUPS.includes(g));
 const isPlanEntry = (entry) => PLAN_GROUPS.includes(entry.group);
@@ -941,7 +1025,7 @@ function buildBoxArrays(w, h, d) {
 // --- Évier et plaque de cuisson : ils traversent toujours le plan de travail qui les porte ---
 // Le plan est découpé (trou de l'empreinte), l'évier s'enfonce dans une cuve, la plaque est encastrée.
 // Tout est calculé dans le repère local de l'objet : x = largeur (u), z = profondeur (v).
-const isMounted = (e) => e.id === "shelf" || e.id === "coat-rack" || e.id === "radiator" || e.id === "towel-radiator" || e.id === "pendant" || e.id === "mirror"; // objets muraux à hauteur de fixation réglable
+const isMounted = (e) => !!e.mounted || e.id === "shelf" || e.id === "coat-rack" || e.id === "radiator" || e.id === "towel-radiator" || e.id === "pendant" || e.id === "mirror"; // objets muraux à hauteur de fixation réglable
 const isWorktop = (e) => e.id === "worktop" || e.id.startsWith("mb-pdt");
 const isCutout = (e) => e.id === "sink" || e.id === "stove";
 const SINK_DEPTH = 18;
