@@ -1150,45 +1150,226 @@ function pointInPoly(p, verts) {
   }
   return inside;
 }
-function buildWallMeshes(room, openings, wallColor) {
-  const H = room.height, verts = room.vertices, meshes = [];
+// Géométrie d'un mur : repère le long du mur (dir), normale intérieure (n) et sens d'enroulement.
+function wallInfo(room, i) {
+  const verts = room.vertices, A = verts[i], B = verts[(i + 1) % verts.length];
+  const L = Math.hypot(B.x - A.x, B.y - A.y);
+  if (L < 1) return null;
+  const dir = { x: (B.x - A.x) / L, y: (B.y - A.y) / L };
+  let n = { x: -dir.y, y: dir.x }, flipped = false;
+  if (!pointInPoly({ x: (A.x + B.x) / 2 + n.x * 3, y: (A.y + B.y) / 2 + n.y * 3 }, verts)) { n = { x: -n.x, y: -n.y }; flipped = true; }
+  return { A, B, L, dir, n, flipped };
+}
+// Rectangles pleins d'un mur (x = abscisse le long du mur, z = hauteur) une fois les ouvertures retirées.
+function wallRects(room, openings, w) {
+  let rects = [{ x0: 0, x1: w.L, z0: 0, z1: room.height }];
+  openings.forEach((o) => {
+    const rel = { x: o.centerX - w.A.x, y: o.centerY - w.A.y };
+    const along = rel.x * w.dir.x + rel.y * w.dir.y, perp = Math.abs(rel.x * w.n.x + rel.y * w.n.y);
+    if (perp > 20 || Math.abs(o.u.x * w.dir.x + o.u.y * w.dir.y) < 0.9 || along < 0 || along > w.L) return;
+    const e = o.catalogEntry;
+    const hole = { x0: Math.max(0, along - o.width / 2), x1: Math.min(w.L, along + o.width / 2), z0: Math.max(0, e.yOffset), z1: Math.min(room.height, e.yOffset + e.height) };
+    rects = rects.flatMap((r) => subtractRect(r, hole));
+  });
+  return rects;
+}
+// Murs 3D. `zones` : carrelage par mur ({ [i]: { cfg, mat } }) ; la partie sous la hauteur de pose est carrelée.
+function buildWallMeshes(room, openings, wallColor, zones = {}, edges = true) {
+  const meshes = [];
   const mat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.95, metalness: 0 });
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x3a4654 });
-  verts.forEach((A, i) => {
-    const B = verts[(i + 1) % verts.length];
-    const L = Math.hypot(B.x - A.x, B.y - A.y);
-    if (L < 1) return;
-    const dir = { x: (B.x - A.x) / L, y: (B.y - A.y) / L };
-    // normale intérieure : celle des deux côtés du mur qui pointe dans la pièce
-    let n = { x: -dir.y, y: dir.x }, flipped = false;
-    if (!pointInPoly({ x: (A.x + B.x) / 2 + n.x * 3, y: (A.y + B.y) / 2 + n.y * 3 }, verts)) { n = { x: -n.x, y: -n.y }; flipped = true; }
-    // repère du mur : x = abscisse le long du mur, z = hauteur
-    let rects = [{ x0: 0, x1: L, z0: 0, z1: H }];
-    openings.forEach((o) => {
-      const rel = { x: o.centerX - A.x, y: o.centerY - A.y };
-      const along = rel.x * dir.x + rel.y * dir.y, perp = Math.abs(rel.x * n.x + rel.y * n.y);
-      if (perp > 20 || Math.abs(o.u.x * dir.x + o.u.y * dir.y) < 0.9 || along < 0 || along > L) return;
-      const e = o.catalogEntry;
-      const hole = { x0: Math.max(0, along - o.width / 2), x1: Math.min(L, along + o.width / 2), z0: Math.max(0, e.yOffset), z1: Math.min(H, e.yOffset + e.height) };
-      rects = rects.flatMap((r) => subtractRect(r, hole));
-    });
-    const pos = [], nor = [];
-    const Pt = (u, v) => [(A.x + dir.x * u) / 100, v / 100, (A.y + dir.y * u) / 100];
+  room.vertices.forEach((_, i) => {
+    const w = wallInfo(room, i);
+    if (!w) return;
+    const rects = wallRects(room, openings, w);
+    const zone = zones[i];
+    const lim = zone ? Math.max(1, Math.min(room.height, zone.cfg.height ?? room.height)) : 0;
+    const plain = [], tiled = [];
     rects.forEach((r) => {
-      const p0 = Pt(r.x0, r.z0), p1 = Pt(r.x1, r.z0), p2 = Pt(r.x1, r.z1), p3 = Pt(r.x0, r.z1);
-      (flipped ? [p0, p2, p1, p0, p3, p2] : [p0, p1, p2, p0, p2, p3]).forEach((p) => { pos.push(...p); nor.push(n.x, 0, n.y); });
+      if (!zone) { plain.push(r); return; }
+      if (r.z0 < lim) tiled.push({ ...r, z1: Math.min(r.z1, lim) });
+      if (r.z1 > lim) plain.push({ ...r, z0: Math.max(r.z0, lim) });
     });
-    if (!pos.length) return;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
-    meshes.push(mesh);
+    [[plain, mat], [tiled, zone && zone.mat]].forEach(([list, material]) => {
+      if (!list.length || !material) return;
+      const pos = [], nor = [], uv = [];
+      const Pt = (u, v) => [(w.A.x + w.dir.x * u) / 100, v / 100, (w.A.y + w.dir.y * u) / 100];
+      list.forEach((r) => {
+        const c = [[r.x0, r.z0], [r.x1, r.z0], [r.x1, r.z1], [r.x0, r.z1]];
+        (w.flipped ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]).forEach((k) => {
+          pos.push(...Pt(c[k][0], c[k][1])); nor.push(w.n.x, 0, w.n.y); uv.push(c[k][0] / 100, c[k][1] / 100);
+        });
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.receiveShadow = true;
+      if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+      meshes.push(mesh);
+    });
   });
   return meshes;
 }
+
+// ---------------------------------------------------------------------------
+// Carrelage : catalogue de carreaux, calepinage (textures périodiques), quantités
+// ---------------------------------------------------------------------------
+const TILE_PATTERNS = [
+  { id: "grid", label: "Droite (joints alignés)" },
+  { id: "bond2", label: "Décalée 1/2 (à l'anglaise)" },
+  { id: "bond3", label: "Décalée 1/3" },
+  { id: "bond4", label: "Décalée 1/4" },
+  { id: "checker", label: "Damier (2 carreaux)" },
+];
+const TILE_SAMPLES = [
+  { name: "Grès cérame 60×60 gris", w: 60, h: 60, joint: 3, color: "#8f8f8c", finish: "mat" },
+  { name: "Grand format 120×60 beige", w: 120, h: 60, joint: 2, color: "#cbbfa9", finish: "mat" },
+  { name: "Métro 7,5×15 blanc", w: 15, h: 7.5, joint: 2, color: "#f1f0ec", finish: "brillant" },
+  { name: "Zellige 10×10 vert", w: 10, h: 10, joint: 3, color: "#4f7a64", finish: "brillant" },
+  { name: "Carreau ciment 20×20 noir", w: 20, h: 20, joint: 2, color: "#2f3135", finish: "mat" },
+  { name: "Carreau ciment 20×20 crème", w: 20, h: 20, joint: 2, color: "#e6dcc8", finish: "mat" },
+];
+function normalizeTiles(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((t) => t && typeof t === "object" && t.id && Number(t.w) > 0 && Number(t.h) > 0).map((t) => ({
+    id: String(t.id), name: String(t.name || "Carreau"), w: Number(t.w), h: Number(t.h),
+    joint: Number.isFinite(Number(t.joint)) ? Math.max(0, Number(t.joint)) : 3,
+    color: typeof t.color === "string" ? t.color : "#b9b6b0", finish: t.finish === "brillant" ? "brillant" : "mat",
+    image: typeof t.image === "string" && t.image.startsWith("data:image/") ? t.image : null,
+  }));
+}
+function defaultZoneCfg(tileId, height) {
+  return { tileId, tile2Id: null, pattern: "grid", rotation: 0, offX: 0, offY: 0, jointColor: "#b9b6b0", variation: 3, rand90: false, height };
+}
+const zoneCfgOf = (room, key) => (key === "floor" ? room.tiling?.floor : room.tiling?.walls?.[key.slice(1)]) || null;
+// Image d'un carreau (cache par contenu).
+const tileImageCache = new Map();
+function loadTileImage(tile) {
+  if (!tile || !tile.image) return Promise.resolve(null);
+  const key = tile.id + ":" + tile.image.length;
+  if (!tileImageCache.has(key)) tileImageCache.set(key, new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = tile.image; }));
+  return tileImageCache.get(key);
+}
+function seededRng(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+// Cellule périodique du calepinage (plusieurs carreaux, joints compris) → textures couleur, relief et rugosité.
+const tileCellCache = new Map();
+async function buildTileCell(tile, tile2, cfg) {
+  const key = JSON.stringify([tile, tile2 && cfg.pattern === "checker" ? tile2 : null, cfg.pattern, cfg.jointColor, cfg.variation, cfg.rand90]);
+  if (tileCellCache.has(key)) return tileCellCache.get(key);
+  const pat = cfg.pattern || "grid", n = pat === "bond2" ? 2 : pat === "bond3" ? 3 : pat === "bond4" ? 4 : 1;
+  const j = Math.max(0, tile.joint) / 10, tw = tile.w + j, th = tile.h + j;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  let C = clamp(Math.round(100 / tw), 2, 30), R = clamp(Math.round(100 / th), 2, 30);
+  R = Math.ceil(R / n) * n;
+  if (pat === "checker") { if (C % 2) C++; if (R % 2) R++; }
+  const W = C * tw, H = R * th, ppc = Math.min(12, 2048 / Math.max(W, H));
+  const pxW = Math.max(2, Math.round(W * ppc)), pxH = Math.max(2, Math.round(H * ppc)), sx = pxW / W, sy = pxH / H;
+  const mk = () => { const c = document.createElement("canvas"); c.width = pxW; c.height = pxH; return [c, c.getContext("2d")]; };
+  const [cMap, ctx] = mk(), [cBump, bctx] = mk(), [cRough, rctx] = mk();
+  const [im1, im2] = await Promise.all([loadTileImage(tile), pat === "checker" && tile2 ? loadTileImage(tile2) : null]);
+  ctx.fillStyle = cfg.jointColor || "#b9b6b0"; ctx.fillRect(0, 0, pxW, pxH);
+  bctx.fillStyle = "#000"; bctx.fillRect(0, 0, pxW, pxH);
+  rctx.fillStyle = "#f2f2f2"; rctx.fillRect(0, 0, pxW, pxH);
+  const rnd = seededRng(tile.id.split("").reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7));
+  const variation = (cfg.variation || 0) / 100, canRot = !!cfg.rand90 && Math.abs(tile.w - tile.h) < 0.01;
+  const vr = [], rr = [];
+  for (let r = 0; r < R; r++) { vr.push([]); rr.push([]); for (let c = 0; c < C; c++) { vr[r].push((rnd() - 0.5) * 2 * variation); rr[r].push(canRot ? Math.floor(rnd() * 4) : 0); } }
+  const roughV = tile.finish === "brillant" ? "#3a3a3a" : "#bfbfbf";
+  for (let r = 0; r < R; r++) {
+    const shift = n > 1 ? ((r % n) / n) * tw : 0;
+    for (let c = -1; c <= C; c++) {
+      const cw = ((c % C) + C) % C, t = pat === "checker" && (cw + r) % 2 === 1 && tile2 ? tile2 : tile, im = t === tile2 && tile2 ? im2 : im1;
+      const x = (c * tw + shift + j / 2) * sx, y = (r * th + j / 2) * sy, w = tile.w * sx, h = tile.h * sy;
+      [[ctx, 0], [bctx, 1], [rctx, 2]].forEach(([g, kind]) => {
+        if (kind === 1) { g.fillStyle = "#fff"; g.fillRect(x, y, w, h); return; }
+        if (kind === 2) { g.fillStyle = roughV; g.fillRect(x, y, w, h); return; }
+        g.save();
+        g.beginPath(); g.rect(x, y, w, h); g.clip();
+        if (im) { g.translate(x + w / 2, y + h / 2); g.rotate((rr[r][cw] * Math.PI) / 2); g.drawImage(im, -w / 2, -h / 2, w, h); }
+        else { g.fillStyle = t.color; g.fillRect(x, y, w, h); }
+        const v = vr[r][cw];
+        if (v !== 0) { g.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; g.fillRect(x, y, w, h); }
+        g.restore();
+      });
+    }
+  }
+  const mkTex = (cv, srgb) => { const tx = new THREE.CanvasTexture(cv); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.anisotropy = 8; if (srgb) tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+  const cell = { map: mkTex(cMap, true), bump: mkTex(cBump, false), rough: mkTex(cRough, false), W, H };
+  tileCellCache.set(key, cell);
+  if (tileCellCache.size > 40) { const k = tileCellCache.keys().next().value; const o = tileCellCache.get(k); [o.map, o.bump, o.rough].forEach((x) => x.dispose()); tileCellCache.delete(k); }
+  return cell;
+}
+// Matériau carrelé : rotation et décalage appliqués à la matrice UV (coordonnées en mètres).
+function makeTileMaterial(cell, cfg, isFloor) {
+  const th = ((cfg.rotation || 0) * Math.PI) / 180, c = Math.cos(th), sn = Math.sin(th);
+  const ox = (cfg.offX || 0) / 100, oy = ((isFloor ? -1 : 1) * (cfg.offY || 0)) / 100;
+  const T = new THREE.Matrix3().set(1, 0, -ox, 0, 1, -oy, 0, 0, 1), Rm = new THREE.Matrix3().set(c, sn, 0, -sn, c, 0, 0, 0, 1);
+  const S = new THREE.Matrix3().set(100 / cell.W, 0, 0, 0, 100 / cell.H, 0, 0, 0, 1);
+  const m = new THREE.Matrix3().copy(S).multiply(Rm).multiply(T);
+  const prep = (src) => { const t = src.clone(); t.matrixAutoUpdate = false; t.matrix.copy(m); t.needsUpdate = true; return t; };
+  return new THREE.MeshStandardMaterial({ map: prep(cell.map), bumpMap: prep(cell.bump), bumpScale: 1.2, roughnessMap: prep(cell.rough), roughness: 1, metalness: 0, side: isFloor ? THREE.DoubleSide : THREE.FrontSide });
+}
+// Quantités par pièce et par surface (m², nombre de carreaux avec chutes).
+function polyAreaCm2(v) { let a = 0; v.forEach((p, i) => { const q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; }); return Math.abs(a) / 2; }
+function tilingSummary(rooms, items, tiles) {
+  const byId = Object.fromEntries(tiles.map((t) => [t.id, t])), zones = [], totals = {};
+  rooms.forEach((room) => {
+    const openings = items.filter((it) => it.roomId === room.id).map((it) => computeItemGeometry(it, room.height)).filter(Boolean).filter((it) => isWallOpening(it.catalogEntry));
+    const add = (label, key, cfg, areaCm2) => {
+      const tile = byId[cfg.tileId];
+      if (!tile) return;
+      const pitch = (tile.w + tile.joint / 10) * (tile.h + tile.joint / 10), waste = (cfg.rotation || 0) % 90 !== 0 ? 1.15 : 1.1;
+      const count = Math.ceil((areaCm2 / pitch) * waste), m2 = areaCm2 / 10000;
+      zones.push({ room: room.name, label, tile, m2, count });
+      totals[tile.id] = totals[tile.id] || { tile, m2: 0, count: 0 }; totals[tile.id].m2 += m2; totals[tile.id].count += count;
+    };
+    const fl = room.tiling?.floor;
+    if (fl) add("Sol", "floor", fl, polyAreaCm2(room.vertices));
+    Object.entries(room.tiling?.walls || {}).forEach(([i, cfg]) => {
+      const w = wallInfo(room, Number(i));
+      if (!w || !cfg) return;
+      const lim = Math.max(1, Math.min(room.height, cfg.height ?? room.height));
+      const area = wallRects(room, openings, w).reduce((a, r) => a + Math.max(0, Math.min(r.z1, lim) - r.z0) * (r.x1 - r.x0), 0);
+      add(`Mur ${Number(i) + 1}`, `w${i}`, cfg, area);
+    });
+  });
+  return { zones, totals: Object.values(totals) };
+}
+// Réduit une photo de carreau (JPEG ≤ 384 px) pour tenir dans le stockage local.
+function fileToTileImage(file, maxPx = 384) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, maxPx / Math.max(im.width, im.height)), c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.85));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("image")); };
+    im.src = url;
+  });
+}
+// Import CSV (nom;largeur;hauteur;joint;couleur) — séparateur ; , ou tabulation, virgule décimale acceptée.
+function parseTilesCSV(text) {
+  const out = [];
+  text.split(/\r?\n/).forEach((line) => {
+    if (!line.trim()) return;
+    const sep = line.includes(";") ? ";" : line.includes("\t") ? "\t" : ",";
+    const f = line.split(sep).map((x) => x.trim().replace(/^"|"$/g, ""));
+    const num = (v) => parseFloat(String(v ?? "").replace(",", "."));
+    const w = num(f[1]), h = num(f[2]);
+    if (!f[0] || !(w > 0) || !(h > 0)) return; // en-tête ou ligne invalide
+    const j = num(f[3]);
+    out.push({ id: uid(), name: f[0], w, h, joint: Number.isFinite(j) ? j : 3, color: /^#[0-9a-f]{6}$/i.test(f[4] || "") ? f[4] : "#b9b6b0", finish: /brill/i.test(f[5] || "") ? "brillant" : "mat", image: null });
+  });
+  return out;
+}
+
 // Boîtes (repère de l'objet) d'un objet placé : ses "parts" si le catalogue en définit, sinon une boîte unique.
 // `all` = les objets de la pièce (pour percer les plans de travail et creuser les caissons sous un évier).
 function itemBoxes(item, all = []) {
@@ -1447,7 +1628,7 @@ function makeBlankProject(name) {
   return {
     id: uid(), name, savedAt: new Date().toISOString(),
     rooms: [{ id: roomId, name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } }],
-    items: [],
+    items: [], tiles: [],
   };
 }
 
@@ -1509,6 +1690,7 @@ function normalizeProject(p) {
       height: typeof r.height === "number" ? r.height : 240,
       floor: r.floor && typeof r.floor === "object" ? { ...DEFAULT_FLOOR, ...r.floor } : { ...DEFAULT_FLOOR },
       wallColor: typeof r.wallColor === "string" ? r.wallColor : DEFAULT_WALL,
+      ...(r.tiling && typeof r.tiling === "object" ? { tiling: r.tiling } : {}),
     }));
     const finalRooms = rooms.length ? rooms : [{ id: uid(), name: "Cuisine", vertices: DEFAULT_VERTICES, height: 240, floor: { ...DEFAULT_FLOOR } }];
     const roomIds = new Set(finalRooms.map((r) => r.id));
@@ -1527,7 +1709,7 @@ function normalizeProject(p) {
         radii: Array.isArray(it.radii) ? it.radii : [0, 0, 0, 0],
         ...(typeof it.topHeight === "number" ? { topHeight: it.topHeight } : {}),
       }));
-    return { id: p.id || uid(), name: p.name || "Projet", savedAt: p.savedAt || new Date().toISOString(), rooms: finalRooms, items };
+    return { id: p.id || uid(), name: p.name || "Projet", savedAt: p.savedAt || new Date().toISOString(), rooms: finalRooms, items, tiles: normalizeTiles(p.tiles) };
   }
   return migrateLegacyProject(p);
 }
@@ -1615,6 +1797,13 @@ export default function KitchenDesigner() {
   const [activeProjectId, setActiveProjectId] = useState(initData.project.id);
   const [rooms, setRooms] = useState(initData.project.rooms);
   const [items, setItems] = useState(initData.project.items);
+  const [tiles, setTiles] = useState(initData.project.tiles || []);
+  const [tileZone, setTileZone] = useState("floor");
+  const [tileSel, setTileSel] = useState(null);
+  const [tileCells, setTileCells] = useState({});
+  const [showFurniture, setShowFurniture] = useState(false);
+  const tileFileRef = useRef(null);
+  const tileCsvRef = useRef(null);
   const [activeRoomId, setActiveRoomId] = useState(initData.project.rooms[0].id);
   const [selectedUid, setSelectedUid] = useState(null);
   const [selectedWallIndex, setSelectedWallIndex] = useState(null);
@@ -1789,17 +1978,24 @@ export default function KitchenDesigner() {
     floorGeo.rotateX(-Math.PI / 2);
     const floorCfg = activeRoom.floor || DEFAULT_FLOOR;
     const floorTexture = buildFloorTexture(floorCfg);
-    const floorMat = floorTexture
-      ? new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1, side: THREE.DoubleSide })
-      : new THREE.MeshStandardMaterial({ color: floorCfg.color || DEFAULT_FLOOR.color, roughness: 1, side: THREE.DoubleSide });
+    const floorZone = activeRoom.tiling?.floor, floorCell = tileCells.floor;
+    const floorMat = floorZone && floorCell
+      ? makeTileMaterial(floorCell, floorZone, true)
+      : floorTexture
+        ? new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 1, side: THREE.DoubleSide })
+        : new THREE.MeshStandardMaterial({ color: floorCfg.color || DEFAULT_FLOOR.color, roughness: 1, side: THREE.DoubleSide });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.receiveShadow = true;
     t.roomGroup.add(floorMesh);
 
     const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    t.target.set((minX + maxX) / 2 / 100, hM / 3, (minY + maxY) / 2 / 100);
-    t.spherical.radius = Math.max(maxX - minX, maxY - minY, 100) / 100 * 1.6 + 1;
+    const fitKey = activeRoom.id + JSON.stringify(activeRoom.vertices) + activeRoom.height;
+    if (t.fitKey !== fitKey) { // cadrage de la caméra seulement quand la pièce change (pas à chaque réglage de couleur ou de carrelage)
+      t.target.set((minX + maxX) / 2 / 100, hM / 3, (minY + maxY) / 2 / 100);
+      t.spherical.radius = Math.max(maxX - minX, maxY - minY, 100) / 100 * 1.6 + 1;
+      t.fitKey = fitKey;
+    }
     // lumière et ombres cadrées sur la pièce
     const cx = (minX + maxX) / 200, cz = (minY + maxY) / 200, span = Math.hypot(maxX - minX, maxY - minY) / 100;
     t.dir.target.position.set(cx, 0, cz);
@@ -1808,7 +2004,23 @@ export default function KitchenDesigner() {
     sc.near = 0.1; sc.far = span * 4 + hM * 2;
     sc.updateProjectionMatrix();
     t.updateCamera();
-  }, [activeRoom, show3D]);
+  }, [activeRoom, show3D, tileCells]);
+
+  // --- carrelage : textures périodiques par surface (sol, murs) de la pièce active ---
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const byId = Object.fromEntries(tiles.map((x) => [x.id, x])), out = {};
+      const zones = [["floor", activeRoom?.tiling?.floor], ...Object.entries(activeRoom?.tiling?.walls || {}).map(([i, c]) => ["w" + i, c])];
+      for (const [key, cfg] of zones) {
+        const tile = cfg && byId[cfg.tileId];
+        if (!tile) continue;
+        out[key] = await buildTileCell(tile, cfg.tile2Id ? byId[cfg.tile2Id] : null, cfg);
+      }
+      if (!cancelled) setTileCells(out);
+    })();
+    return () => { cancelled = true; };
+  }, [activeRoom?.tiling, tiles, activeRoom?.id]);
 
   // --- direction de la lumière (orientation + hauteur) ---
   useEffect(() => {
@@ -1826,12 +2038,17 @@ export default function KitchenDesigner() {
   useEffect(() => {
     const t = three.current;
     if (!t || !activeRoom) return;
-    t.wallGroup.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
+    t.wallGroup.traverse((c) => { c.geometry?.dispose(); if (c.material) { ['map', 'bumpMap', 'roughnessMap'].forEach((k) => c.material[k]?.dispose()); c.material.dispose(); } });
     t.wallGroup.clear();
     const openings = roomItemsComputed.filter((it) => isWallOpening(it.catalogEntry));
-    buildWallMeshes(activeRoom, openings, activeRoom.wallColor || DEFAULT_WALL).forEach((m) => t.wallGroup.add(m));
+    const zones = {};
+    Object.entries(activeRoom.tiling?.walls || {}).forEach(([i, cfg]) => {
+      const cell = tileCells["w" + i];
+      if (cfg && cell) zones[i] = { cfg, mat: makeTileMaterial(cell, cfg, false) };
+    });
+    buildWallMeshes(activeRoom, openings, activeRoom.wallColor || DEFAULT_WALL, zones, mode !== "carrelage").forEach((m) => t.wallGroup.add(m));
     t.updateCamera();
-  }, [activeRoom, roomItemsComputed, show3D]);
+  }, [activeRoom, roomItemsComputed, show3D, tileCells, mode]);
 
   // --- la sélection/édition de mur ne concerne que la pièce affichée ---
   useEffect(() => { setSelectedWallIndex(null); setWallEditIndex(null); }, [activeRoomId]);
@@ -1857,7 +2074,7 @@ export default function KitchenDesigner() {
     t.group.traverse((c) => { c.geometry?.dispose(); c.material?.dispose(); });
     t.group.clear();
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x2f3844 });
-    roomItemsComputed.forEach((item) => {
+    roomItemsComputed.filter((it) => !(mode === "carrelage" && !showFurniture && !isPlanEntry(it.catalogEntry))).forEach((item) => {
       const holder = new THREE.Group();
       holder.rotation.y = item.angleRad;
       holder.position.set(item.centerX / 100, item.catalogEntry.yOffset / 100, item.centerY / 100);
@@ -1869,13 +2086,13 @@ export default function KitchenDesigner() {
         );
         mesh.position.set(b.x / 100, (b.y + b.h / 2) / 100, b.z / 100);
         mesh.castShadow = !glass; mesh.receiveShadow = true;
-        if (Math.min(b.w, b.h, b.d) >= 0.5) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, b.cyl ? 30 : 1), edgeMat));
+        if (mode !== "carrelage" && Math.min(b.w, b.h, b.d) >= 0.5) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, b.cyl ? 30 : 1), edgeMat));
         holder.add(mesh);
       });
       t.group.add(holder);
     });
     t.updateCamera();
-  }, [roomItemsComputed, show3D]);
+  }, [roomItemsComputed, show3D, mode, showFurniture]);
 
   // --- édition du polygone de la pièce active ---
   function clientToSvgPoint(e) {
@@ -2086,19 +2303,19 @@ export default function KitchenDesigner() {
       setProjects((prev) => {
         const existing = prev[activeProjectId];
         if (!existing) return prev;
-        const updated = { ...prev, [activeProjectId]: { ...existing, rooms, items, savedAt: new Date().toISOString() } };
+        const updated = { ...prev, [activeProjectId]: { ...existing, rooms, items, tiles, savedAt: new Date().toISOString() } };
         persistProjects(updated);
         return updated;
       });
     }, 500);
     return () => clearTimeout(saveTimeoutRef.current);
-  }, [rooms, items, activeProjectId]);
+  }, [rooms, items, tiles, activeProjectId]);
 
   // --- gestion multi-projets ---
   function loadProjectState(raw) {
     const p = normalizeProject(raw);
-    setRooms(p.rooms); setItems(p.items);
-    setActiveRoomId(p.rooms[0].id); setSelectedUid(null);
+    setRooms(p.rooms); setItems(p.items); setTiles(p.tiles || []);
+    setActiveRoomId(p.rooms[0].id); setSelectedUid(null); setTileZone("floor"); setTileSel(null);
   }
   function switchProject(id) {
     const p = projects[id];
@@ -2144,7 +2361,7 @@ export default function KitchenDesigner() {
 
   // --- export / import du projet complet ---
   function handleExportProject() {
-    exportProjectJSON({ name: projects[activeProjectId]?.name, rooms, items });
+    exportProjectJSON({ name: projects[activeProjectId]?.name, rooms, items, tiles });
   }
   function triggerImport() { setImportError(""); fileInputRef.current?.click(); }
   function handleImportFile(e) {
@@ -2177,7 +2394,7 @@ export default function KitchenDesigner() {
   // --- étapes : "plan" = murs, portes, fenêtres, réseaux ; "meubles" = tout le reste ---
   function switchMode(m) {
     setMode(m);
-    if (m === "3d") setShow3D(true);
+    if (m === "3d" || m === "carrelage") setShow3D(true);
     setSelectedUid(null); setSelectedWallIndex(null); setWallEditIndex(null);
   }
   // Image de la vue 3D telle qu'affichée (caméra courante) : rendu puis lecture immédiate du canvas.
@@ -2194,6 +2411,92 @@ export default function KitchenDesigner() {
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }, "image/png");
   }
+  // --- carrelage : catalogue, réglages par surface, vues ---
+  const zoneKeys = activeRoom ? [{ key: "floor", label: "Sol" }].concat(activeRoom.vertices.map((_, i) => ({ key: "w" + i, label: `Mur ${i + 1}`, i }))).filter((z) => z.i == null || wallInfo(activeRoom, z.i)) : [];
+  const zoneCfg = activeRoom ? zoneCfgOf(activeRoom, tileZone) : null;
+  const tileById = Object.fromEntries(tiles.map((x) => [x.id, x]));
+  function writeZone(key, cfg) {
+    setRooms((rs) => rs.map((r) => {
+      if (r.id !== activeRoomId) return r;
+      const tl = r.tiling || {};
+      if (key === "floor") { const { floor: _f, ...rest } = tl; return { ...r, tiling: cfg ? { ...rest, floor: cfg } : rest }; }
+      const walls = { ...(tl.walls || {}) };
+      if (cfg) walls[key.slice(1)] = cfg; else delete walls[key.slice(1)];
+      return { ...r, tiling: { ...tl, walls } };
+    }));
+  }
+  function patchZone(key, patch) {
+    const cur = zoneCfgOf(activeRoom, key);
+    if (!cur && !patch.tileId) return;
+    writeZone(key, { ...(cur || defaultZoneCfg(patch.tileId, activeRoom.height)), ...patch });
+  }
+  function applyToAllWalls() {
+    if (!zoneCfg || tileZone === "floor") return;
+    setRooms((rs) => rs.map((r) => {
+      if (r.id !== activeRoomId) return r;
+      const walls = {};
+      r.vertices.forEach((_, i) => { if (wallInfo(r, i)) walls[i] = { ...zoneCfg }; });
+      return { ...r, tiling: { ...(r.tiling || {}), walls } };
+    }));
+  }
+  function addTile(partial) {
+    const t = { id: uid(), name: "Nouveau carreau", w: 30, h: 30, joint: 3, color: "#b9b6b0", finish: "mat", image: null, ...partial };
+    setTiles((ts) => [...ts, t]); setTileSel(t.id);
+    return t;
+  }
+  function updateTile(id, patch) { setTiles((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch } : x))); }
+  function removeTile(id) {
+    setTiles((ts) => ts.filter((x) => x.id !== id));
+    setRooms((rs) => rs.map((r) => {
+      if (!r.tiling) return r;
+      const keep = (c) => (c && c.tileId !== id ? { ...c, tile2Id: c.tile2Id === id ? null : c.tile2Id } : null);
+      const walls = {}; Object.entries(r.tiling.walls || {}).forEach(([i, c]) => { const k = keep(c); if (k) walls[i] = k; });
+      const fl = keep(r.tiling.floor), tl = { walls }; if (fl) tl.floor = fl;
+      return { ...r, tiling: tl };
+    }));
+    if (tileSel === id) setTileSel(null);
+  }
+  async function handleTilePhoto(e, id) {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    try { updateTile(id, { image: await fileToTileImage(file) }); } catch { setImportError("Image illisible."); }
+  }
+  function handleTilesCsv(e) {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const list = parseTilesCSV(String(reader.result));
+      if (!list.length) { setImportError("Aucun carreau lisible : colonnes attendues « nom ; largeur ; hauteur ; joint (mm) ; couleur »."); return; }
+      setImportError(""); setTiles((ts) => [...ts, ...list]);
+    };
+    reader.readAsText(file);
+  }
+  function viewTop() {
+    const t = three.current;
+    if (!t || !activeRoom) return;
+    const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
+    t.target.set((Math.min(...xs) + Math.max(...xs)) / 200, 0, (Math.min(...ys) + Math.max(...ys)) / 200);
+    t.spherical.phi = 0.16; t.spherical.theta = 0;
+    t.spherical.radius = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 100) / 100 * 1.5 + 1;
+    t.updateCamera();
+  }
+  function viewWall(i) {
+    const t = three.current, w = activeRoom && wallInfo(activeRoom, i);
+    if (!t || !w) return;
+    t.target.set((w.A.x + w.dir.x * w.L / 2) / 100, activeRoom.height / 200, (w.A.y + w.dir.y * w.L / 2) / 100);
+    t.spherical.theta = Math.atan2(w.n.x, w.n.y); t.spherical.phi = 1.45;
+    t.spherical.radius = Math.min(25, Math.max(w.L, activeRoom.height) / 100 * 1.25 + 0.8);
+    t.updateCamera();
+  }
+  function viewPerspective() {
+    const t = three.current;
+    if (!t) return;
+    t.spherical.phi = Math.PI / 3; t.spherical.theta = Math.PI / 4;
+    t.updateCamera();
+  }
+  const tileSummary = useMemo(() => (mode === "carrelage" ? tilingSummary(rooms, items, tiles) : null), [mode, rooms, items, tiles]);
+
   function closeMenu(e) {
     const d = e.currentTarget.closest("details");
     if (d) d.open = false;
@@ -2276,7 +2579,24 @@ export default function KitchenDesigner() {
         .sun-ctl input[type=range] { width:110px; }
         .body.is3d .viewer3d-wrap { position:relative; flex:1; height:calc(100vh - 130px); min-height:60vh; }
         @media (max-width: 860px) { .body.is3d .viewer3d-wrap { height:calc(100vh - 230px); } }
-        .body.is3d .viewer3d-wrap > div { position:absolute; inset:0; height:auto; }
+        .body.is3d .viewer3d-wrap > div, .body.istile .viewer3d-wrap > div { position:absolute; inset:0; height:auto; }
+        .body.istile .editor2d-wrap, .body.istile .footer-hint { display:none; }
+        .body.istile .main { min-height:0; }
+        .body.istile .viewer3d-wrap { position:relative; flex:1; height:calc(100vh - 130px); min-height:50vh; }
+        @media (max-width: 860px) { .body.istile .viewer3d-wrap { height:50vh; flex:none; } }
+        .zone-list { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px; }
+        .zone-btn { display:flex; flex-direction:column; align-items:flex-start; gap:1px; padding:6px 8px; border:1px solid #c7d0d9; border-radius:3px; background:#fff; cursor:pointer; font-size:12px; text-align:left; color:#1d2733; }
+        .zone-btn.active { border-color:#e2711d; background:#fff4ec; }
+        .zone-btn .zsub { font-size:10px; color:#6b7789; }
+        .tile-form { display:flex; flex-direction:column; gap:8px; padding:6px 0; }
+        .tile-row { border:1px solid #d7dde3; border-radius:3px; margin-bottom:4px; padding:6px; }
+        .tile-row.selected { border-color:#1f6f93; }
+        .tile-row .top { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; }
+        .tile-row .name { flex:1; }
+        .tile-row .w { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; }
+        .tile-swatch { width:26px; height:26px; border-radius:3px; border:1px solid #c7d0d9; flex:none; }
+        .qty-line { font-size:11px; color:#6b7789; margin-top:2px; }
+        .row-actions { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0; }
         .viewer3d-wrap > div { width:100%; height:100%; cursor:grab; touch-action:none; }
         .dim-text { font-family:'IBM Plex Mono',monospace; fill:#1f6f93; }
         .footer-hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6b7789; padding:8px 12px; border-bottom:1px solid #d7dde3; }
@@ -2347,6 +2667,7 @@ export default function KitchenDesigner() {
           <button className={`step ${mode === "plan" ? "active" : ""}`} onClick={() => switchMode("plan")}><b>1</b>Plan</button>
           <button className={`step ${mode === "meubles" ? "active" : ""}`} onClick={() => switchMode("meubles")}><b>2</b>Meubles</button>
           <button className={`step ${mode === "3d" ? "active" : ""}`} onClick={() => switchMode("3d")}><b>3</b>3D</button>
+          <button className={`step ${mode === "carrelage" ? "active" : ""}`} onClick={() => switchMode("carrelage")}><b>4</b>Carrelage</button>
         </div>
         <div className="header-right">
           <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={handleImportFile} />
@@ -2383,7 +2704,7 @@ export default function KitchenDesigner() {
       </div>
       {importError && <div className="warning" style={{ margin: "8px 18px 0" }}>{importError}</div>}
 
-      <div className={`body ${mode === "3d" ? "is3d" : ""}`}>
+      <div className={`body ${mode === "3d" ? "is3d" : mode === "carrelage" ? "istile" : ""}`}>
         <div className="sidebar">
           <div className="panel">
             <div className="section-label">Pièce</div>
@@ -2495,6 +2816,128 @@ export default function KitchenDesigner() {
                 <button className="btn next-btn" onClick={() => switchMode("plan")}>← Modifier le plan</button>
               </>
             )}
+            {mode === "carrelage" && activeRoom && (
+              <>
+                <div className="section-label">Surfaces à carreler</div>
+                <div className="zone-list">
+                  {zoneKeys.map((z) => {
+                    const c = zoneCfgOf(activeRoom, z.key), tl = c && tileById[c.tileId];
+                    return (
+                      <button key={z.key} className={`zone-btn ${tileZone === z.key ? "active" : ""}`} onClick={() => { setTileZone(z.key); if (z.i != null) viewWall(z.i); else viewTop(); }}>
+                        <span>{z.label}{z.i != null ? ` · ${(wallInfo(activeRoom, z.i).L / 100).toFixed(2)} m` : ""}</span>
+                        <span className="zsub">{tl ? tl.name : "—"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="section-label">Réglage — {zoneKeys.find((z) => z.key === tileZone)?.label}</div>
+                {tiles.length === 0 ? (
+                  <div className="empty">Ajoute d'abord un carreau au catalogue ci-dessous.</div>
+                ) : (
+                  <div className="tile-form">
+                    <div className="field"><label>Carreau</label>
+                      <select className="select" value={zoneCfg?.tileId || ""} onChange={(e) => (e.target.value ? patchZone(tileZone, { tileId: e.target.value }) : writeZone(tileZone, null))}>
+                        <option value="">— pas de carrelage —</option>
+                        {tiles.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.w}×{x.h})</option>)}
+                      </select>
+                    </div>
+                    {zoneCfg && (
+                      <>
+                        <div className="field"><label>Disposition</label>
+                          <select className="select" value={zoneCfg.pattern} onChange={(e) => patchZone(tileZone, { pattern: e.target.value })}>
+                            {TILE_PATTERNS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                          </select>
+                        </div>
+                        {zoneCfg.pattern === "checker" && (
+                          <div className="field"><label>2e carreau du damier</label>
+                            <select className="select" value={zoneCfg.tile2Id || ""} onChange={(e) => patchZone(tileZone, { tile2Id: e.target.value || null })}>
+                              <option value="">— même carreau —</option>
+                              {tiles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        <div className="field"><label>Rotation du calepinage (°) — 45 = pose en diagonale</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input type="number" value={zoneCfg.rotation} onChange={(e) => patchZone(tileZone, { rotation: Number(e.target.value) || 0 })} />
+                            {[0, 45, 90].map((a) => <button key={a} className="btn" onClick={() => patchZone(tileZone, { rotation: a })}>{a}°</button>)}
+                          </div>
+                        </div>
+                        <div className="field"><label>Point de départ X / Y (cm) — {tileZone === "floor" ? "repère du plan" : "depuis le début du mur et le sol"}</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input type="number" value={zoneCfg.offX} onChange={(e) => patchZone(tileZone, { offX: Number(e.target.value) || 0 })} />
+                            <input type="number" value={zoneCfg.offY} onChange={(e) => patchZone(tileZone, { offY: Number(e.target.value) || 0 })} />
+                          </div>
+                        </div>
+                        {tileZone !== "floor" && (
+                          <div className="field"><label>Hauteur de pose (cm)</label>
+                            <DimInput value={zoneCfg.height ?? activeRoom.height} onCommit={(n) => patchZone(tileZone, { height: Math.min(n, activeRoom.height) })} />
+                          </div>
+                        )}
+                        <div className="field-row">
+                          <div className="field"><label>Couleur des joints</label>
+                            <input type="color" value={zoneCfg.jointColor} onChange={(e) => patchZone(tileZone, { jointColor: e.target.value })} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                          </div>
+                          <div className="field"><label>Variation de teinte {zoneCfg.variation} %</label>
+                            <input type="range" min="0" max="10" value={zoneCfg.variation} onChange={(e) => patchZone(tileZone, { variation: Number(e.target.value) })} />
+                          </div>
+                        </div>
+                        <label className="check"><input type="checkbox" checked={!!zoneCfg.rand90} onChange={(e) => patchZone(tileZone, { rand90: e.target.checked })} /> Orientation à 90° aléatoire (carreaux carrés, ex. ciment)</label>
+                        <div className="row-actions">
+                          {tileZone === "floor" ? <button className="btn" onClick={viewTop}>Vue de dessus</button> : <button className="btn" onClick={() => viewWall(Number(tileZone.slice(1)))}>Voir ce mur</button>}
+                          {tileZone !== "floor" && <button className="btn" onClick={applyToAllWalls}>Appliquer à tous les murs</button>}
+                          <button className="btn" onClick={() => writeZone(tileZone, null)}>Retirer</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="section-label">Catalogue de carreaux</div>
+                <input ref={tileFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handleTilePhoto(e, tileSel)} />
+                <input ref={tileCsvRef} type="file" accept=".csv,.txt,text/csv,text/plain" style={{ display: "none" }} onChange={handleTilesCsv} />
+                {tiles.map((x) => (
+                  <div key={x.id} className={`tile-row ${tileSel === x.id ? "selected" : ""}`}>
+                    <div className="top" onClick={() => setTileSel(tileSel === x.id ? null : x.id)}>
+                      <span className="tile-swatch" style={{ background: x.image ? `url(${x.image}) center/cover` : x.color }} />
+                      <span className="name">{x.name}</span>
+                      <span className="w">{x.w}×{x.h}</span>
+                    </div>
+                    {tileSel === x.id && (
+                      <div className="tile-form">
+                        <div className="field"><label>Nom</label><input type="text" value={x.name} onChange={(e) => updateTile(x.id, { name: e.target.value })} /></div>
+                        <div className="field"><label>Largeur / Hauteur (cm)</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <DimInput value={x.w} onCommit={(n) => updateTile(x.id, { w: Math.max(0.5, n) })} />
+                            <DimInput value={x.h} onCommit={(n) => updateTile(x.id, { h: Math.max(0.5, n) })} />
+                          </div>
+                        </div>
+                        <div className="field-row">
+                          <div className="field"><label>Joint (mm)</label><input type="number" min="0" step="0.5" value={x.joint} onChange={(e) => updateTile(x.id, { joint: Math.max(0, Number(e.target.value) || 0) })} /></div>
+                          <div className="field"><label>Finition</label>
+                            <select className="select" value={x.finish} onChange={(e) => updateTile(x.id, { finish: e.target.value })}><option value="mat">Mat</option><option value="brillant">Brillant</option></select>
+                          </div>
+                        </div>
+                        <div className="field"><label>Couleur (si pas de photo)</label>
+                          <input type="color" value={x.color} onChange={(e) => updateTile(x.id, { color: e.target.value })} style={{ width: "100%", height: 32, padding: 2, border: "1px solid #c7d0d9", borderRadius: 3 }} />
+                        </div>
+                        <div className="row-actions">
+                          <button className="btn" onClick={() => tileFileRef.current?.click()}>{x.image ? "Changer la photo" : "Ajouter une photo"}</button>
+                          {x.image && <button className="btn" onClick={() => updateTile(x.id, { image: null })}>Retirer la photo</button>}
+                          <button className="btn" onClick={() => addTile({ ...x, id: undefined, name: x.name + " (copie)" })}>Dupliquer</button>
+                          <button className="btn" onClick={() => removeTile(x.id)}>Supprimer</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div className="row-actions">
+                  <button className="btn primary" onClick={() => addTile({})}>+ Nouveau carreau</button>
+                  <button className="btn" onClick={() => tileCsvRef.current?.click()}>Importer (CSV)</button>
+                  {tiles.length === 0 && <button className="btn" onClick={() => setTiles(TILE_SAMPLES.map((x) => ({ ...x, id: uid(), image: null })))}>Ajouter des exemples</button>}
+                </div>
+                <div className="menu-note">CSV : nom ; largeur ; hauteur ; joint (mm) ; couleur (#rrggbb) ; finition (mat / brillant)</div>
+              </>
+            )}
           </div>
         </div>
 
@@ -2595,7 +3038,17 @@ export default function KitchenDesigner() {
           </div>
           <div className="viewer3d-bar">
             <div className="section-label" style={{ padding: 0 }}>{show3D ? "Vue 3D — glisser pour orbiter, molette/pincer pour zoomer" : "Vue 3D masquée"}</div>
-            {mode === "3d"
+            {mode === "carrelage"
+              ? (
+                <div className="sun-ctl">
+                  <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={showFurniture} onChange={(ev) => setShowFurniture(ev.target.checked)} /> Meubles visibles</label>
+                  <button className="btn" onClick={viewTop}>Dessus</button>
+                  <button className="btn" onClick={viewPerspective}>Perspective</button>
+                  <label>Lumière {Math.round(sun.az)}°<input type="range" min="0" max="359" value={sun.az} onChange={(ev) => setSun((v) => ({ ...v, az: Number(ev.target.value) }))} /></label>
+                  <button className="btn primary" onClick={exportView3DPNG}>Exporter (PNG)</button>
+                </div>
+              )
+              : mode === "3d"
               ? (
                 <div className="sun-ctl">
                   <label>Lumière — orientation {Math.round(sun.az)}°<input type="range" min="0" max="359" value={sun.az} onChange={(ev) => setSun((v) => ({ ...v, az: Number(ev.target.value) }))} /></label>
@@ -2609,6 +3062,27 @@ export default function KitchenDesigner() {
         </div>
 
         <div className="sidebar-right">
+          {mode === "carrelage" ? (
+            <>
+              <div className="panel-title">Quantités — {rooms.length > 1 ? "toutes les pièces" : activeRoom?.name}</div>
+              <div className="panel">
+                {tileSummary && tileSummary.zones.length === 0 && <div className="empty">Aucune surface carrelée. Choisis une surface à gauche puis un carreau.</div>}
+                {tileSummary && tileSummary.totals.map((t) => (
+                  <div key={t.tile.id} className="layout-row selected" style={{ cursor: "default" }}>
+                    <div className="top"><span className="name">{t.tile.name}</span><span className="w">{t.m2.toFixed(2)} m²</span></div>
+                    <div className="qty-line">≈ {t.count} carreaux (chutes comprises : 10 %, 15 % en diagonale)</div>
+                  </div>
+                ))}
+                {tileSummary && tileSummary.zones.length > 0 && <div className="section-label" style={{ padding: "8px 0 4px" }}>Détail</div>}
+                {tileSummary && tileSummary.zones.map((z, i) => (
+                  <div key={i} className="layout-row" style={{ cursor: "default" }}>
+                    <div className="top"><span className="name">{z.room} — {z.label}</span><span className="w">{z.m2.toFixed(2)} m²</span></div>
+                    <div className="qty-line">{z.tile.name} · ≈ {z.count} carreaux</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (<>
           <div className="panel-title">{mode === "plan" ? "Ouvertures" : "Meubles"} — {activeRoom?.name}</div>
           <div className="panel">
             {visibleItems.length === 0 && (
@@ -2678,6 +3152,7 @@ export default function KitchenDesigner() {
               );
             })}
           </div>
+          </>)}
         </div>
       </div>
     </div>
