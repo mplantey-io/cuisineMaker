@@ -1206,6 +1206,7 @@ function buildWallMeshes(room, openings, wallColor, zones = {}, edges = true) {
       geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
       const mesh = new THREE.Mesh(geo, material);
       mesh.receiveShadow = true;
+      mesh.userData.zone = "w" + i;
       if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
       meshes.push(mesh);
     });
@@ -1304,12 +1305,65 @@ async function buildTileCell(tile, tile2, cfg) {
   if (tileCellCache.size > 40) { const k = tileCellCache.keys().next().value; const o = tileCellCache.get(k); [o.map, o.bump, o.rough].forEach((x) => x.dispose()); tileCellCache.delete(k); }
   return cell;
 }
+// --- Carreau par carreau : textures non périodiques (exceptions) et repérage d'un carreau cliqué ---
+function hash2(a, b, sd) { let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(sd | 0, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function zoneFrame(cfg, isFloor) { const th = ((cfg.rotation || 0) * Math.PI) / 180; return { c: Math.cos(th), s: Math.sin(th), ox: cfg.offX || 0, oy: (isFloor ? -1 : 1) * (cfg.offY || 0) }; }
+const toPattern = (f, u, v) => { const dx = u - f.ox, dy = v - f.oy; return [f.c * dx + f.s * dy, -f.s * dx + f.c * dy]; };
+const patternRows = (cfg) => (cfg.pattern === "bond2" ? 2 : cfg.pattern === "bond3" ? 3 : cfg.pattern === "bond4" ? 4 : 1);
+function patternSlot(cfg, tile, q) {
+  const n = patternRows(cfg), j = tile.joint / 10, tw = tile.w + j, th = tile.h + j, r = Math.floor(q[1] / th);
+  return [Math.floor((q[0] - (((r % n) + n) % n / n) * tw) / tw), r];
+}
+async function buildZoneTexture(cfg, byId, pts, isFloor, baseColor) {
+  const tile = byId[cfg.tileId];
+  if (!tile) return null;
+  const tile2 = cfg.pattern === "checker" && cfg.tile2Id ? byId[cfg.tile2Id] : null, ov = cfg.overrides || {};
+  const used = new Set([tile.id]); if (tile2) used.add(tile2.id);
+  Object.values(ov).forEach((v) => { if (byId[v]) used.add(v); });
+  const key = JSON.stringify(["zone", cfg, pts, isFloor, baseColor, [...used].map((id) => byId[id])]);
+  if (tileCellCache.has(key)) return tileCellCache.get(key);
+  const imgs = {}; await Promise.all([...used].map(async (id) => { imgs[id] = await loadTileImage(byId[id]); }));
+  const f = zoneFrame(cfg, isFloor), qs = pts.map((pt) => toPattern(f, pt[0], pt[1]));
+  const j = tile.joint / 10, tw = tile.w + j, th = tile.h + j, n = patternRows(cfg);
+  const qx0 = Math.min(...qs.map((q) => q[0])) - tw, qx1 = Math.max(...qs.map((q) => q[0])) + tw;
+  const qy0 = Math.min(...qs.map((q) => q[1])) - th, qy1 = Math.max(...qs.map((q) => q[1])) + th;
+  const W = qx1 - qx0, H = qy1 - qy0, ppc = Math.min(10, 2048 / Math.max(W, H)), sx = ppc;
+  const pxW = Math.max(2, Math.round(W * ppc)), pxH = Math.max(2, Math.round(H * ppc)), k = 0.5;
+  const mk = (kk) => { const c = document.createElement("canvas"); c.width = Math.max(2, Math.round(pxW * kk)); c.height = Math.max(2, Math.round(pxH * kk)); const g = c.getContext("2d"); g.setTransform(kk, 0, 0, kk, 0, 0); return [c, g]; };
+  const [cMap, ctx] = mk(1), [cBump, bctx] = mk(k), [cRough, rctx] = mk(k);
+  ctx.fillStyle = cfg.jointColor || "#b9b6b0"; ctx.fillRect(0, 0, pxW, pxH);
+  bctx.fillStyle = "#000"; bctx.fillRect(0, 0, pxW, pxH);
+  rctx.fillStyle = "#f2f2f2"; rctx.fillRect(0, 0, pxW, pxH);
+  const variation = (cfg.variation || 0) / 100, canRot = !!cfg.rand90 && Math.abs(tile.w - tile.h) < 0.01;
+  for (let r = Math.floor(qy0 / th); r <= Math.ceil(qy1 / th); r++) {
+    const shift = n > 1 ? ((((r % n) + n) % n) / n) * tw : 0;
+    for (let c = Math.floor((qx0 - shift) / tw); c <= Math.ceil((qx1 - shift) / tw); c++) {
+      const o = ov[c + "," + r], none = o === "none";
+      const t = none ? null : byId[o] || (tile2 && (((c + r) % 2) + 2) % 2 === 1 ? tile2 : tile);
+      if (none) { ctx.fillStyle = baseColor; ctx.fillRect((c * tw + shift - qx0) * sx, (qy1 - (r * th + th)) * sx, tw * sx, th * sx); continue; }
+      const x = (c * tw + shift + j / 2 - qx0) * sx, y = (qy1 - (r * th + j / 2 + tile.h)) * sx, w = tile.w * sx, h = tile.h * sx, im = imgs[t.id];
+      bctx.fillStyle = "#fff"; bctx.fillRect(x, y, w, h);
+      rctx.fillStyle = t.finish === "brillant" ? "#3a3a3a" : "#bfbfbf"; rctx.fillRect(x, y, w, h);
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      if (im) { ctx.translate(x + w / 2, y + h / 2); ctx.rotate(canRot ? Math.floor(hash2(c, r, 2) * 4) * Math.PI / 2 : 0); ctx.drawImage(im, -w / 2, -h / 2, w, h); }
+      else { ctx.fillStyle = t.color; ctx.fillRect(x, y, w, h); }
+      const v = (hash2(c, r, 1) - 0.5) * 2 * variation;
+      if (v !== 0) { ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; ctx.fillRect(x, y, w, h); }
+      ctx.restore();
+    }
+  }
+  const mkTex = (cv, srgb) => { const tx = new THREE.CanvasTexture(cv); tx.anisotropy = 8; if (srgb) tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+  const cell = { map: mkTex(cMap, true), bump: mkTex(cBump, false), rough: mkTex(cRough, false), W, H, qx0, qy0 };
+  tileCellCache.set(key, cell);
+  if (tileCellCache.size > 40) { const kk = tileCellCache.keys().next().value; const o = tileCellCache.get(kk); [o.map, o.bump, o.rough].forEach((x) => x.dispose()); tileCellCache.delete(kk); }
+  return cell;
+}
 // Matériau carrelé : rotation et décalage appliqués à la matrice UV (coordonnées en mètres).
 function makeTileMaterial(cell, cfg, isFloor) {
   const th = ((cfg.rotation || 0) * Math.PI) / 180, c = Math.cos(th), sn = Math.sin(th);
   const ox = (cfg.offX || 0) / 100, oy = ((isFloor ? -1 : 1) * (cfg.offY || 0)) / 100;
   const T = new THREE.Matrix3().set(1, 0, -ox, 0, 1, -oy, 0, 0, 1), Rm = new THREE.Matrix3().set(c, sn, 0, -sn, c, 0, 0, 0, 1);
-  const S = new THREE.Matrix3().set(100 / cell.W, 0, 0, 0, 100 / cell.H, 0, 0, 0, 1);
+  const S = new THREE.Matrix3().set(100 / cell.W, 0, -(cell.qx0 || 0) / cell.W, 0, 100 / cell.H, -(cell.qy0 || 0) / cell.H, 0, 0, 1);
   const m = new THREE.Matrix3().copy(S).multiply(Rm).multiply(T);
   const prep = (src) => { const t = src.clone(); t.matrixAutoUpdate = false; t.matrix.copy(m); t.needsUpdate = true; return t; };
   return new THREE.MeshStandardMaterial({ map: prep(cell.map), bumpMap: prep(cell.bump), bumpScale: 1.2, roughnessMap: prep(cell.rough), roughness: 1, metalness: 0, side: isFloor ? THREE.DoubleSide : THREE.FrontSide });
@@ -1324,9 +1378,11 @@ function tilingSummary(rooms, items, tiles) {
       const tile = byId[cfg.tileId];
       if (!tile) return;
       const pitch = (tile.w + tile.joint / 10) * (tile.h + tile.joint / 10), waste = (cfg.rotation || 0) % 90 !== 0 ? 1.15 : 1.1;
-      const count = Math.ceil((areaCm2 / pitch) * waste), m2 = areaCm2 / 10000;
-      zones.push({ room: room.name, label, tile, m2, count });
-      totals[tile.id] = totals[tile.id] || { tile, m2: 0, count: 0 }; totals[tile.id].m2 += m2; totals[tile.id].count += count;
+      const ovs = Object.values(cfg.overrides || {}), area = Math.max(0, areaCm2 - ovs.length * pitch);
+      const put = (lbl, t, a, cnt) => { zones.push({ room: room.name, label: lbl, tile: t, m2: a / 10000, count: cnt }); totals[t.id] = totals[t.id] || { tile: t, m2: 0, count: 0 }; totals[t.id].m2 += a / 10000; totals[t.id].count += cnt; };
+      put(label, tile, area, Math.ceil((area / pitch) * waste));
+      const per = {}; ovs.forEach((v) => { if (byId[v] && v !== tile.id) per[v] = (per[v] || 0) + 1; });
+      Object.entries(per).forEach(([id, nn]) => put(label + " (exceptions)", byId[id], nn * pitch, Math.ceil(nn * waste)));
     };
     const fl = room.tiling?.floor;
     if (fl) add("Sol", "floor", fl, polyAreaCm2(room.vertices));
@@ -1800,6 +1856,7 @@ export default function KitchenDesigner() {
   const [tiles, setTiles] = useState(initData.project.tiles || []);
   const [tileZone, setTileZone] = useState("floor");
   const [tileSel, setTileSel] = useState(null);
+  const [brush, setBrush] = useState({ on: false, tileId: "" });
   const [tileCells, setTileCells] = useState({});
   const [showFurniture, setShowFurniture] = useState(false);
   const tileFileRef = useRef(null);
@@ -1986,6 +2043,7 @@ export default function KitchenDesigner() {
         : new THREE.MeshStandardMaterial({ color: floorCfg.color || DEFAULT_FLOOR.color, roughness: 1, side: THREE.DoubleSide });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.receiveShadow = true;
+    floorMesh.userData.zone = "floor";
     t.roomGroup.add(floorMesh);
 
     const xs = activeRoom.vertices.map((v) => v.x), ys = activeRoom.vertices.map((v) => v.y);
@@ -2015,12 +2073,48 @@ export default function KitchenDesigner() {
       for (const [key, cfg] of zones) {
         const tile = cfg && byId[cfg.tileId];
         if (!tile) continue;
-        out[key] = await buildTileCell(tile, cfg.tile2Id ? byId[cfg.tile2Id] : null, cfg);
+        if (cfg.overrides && Object.keys(cfg.overrides).length) {
+          let pts, base;
+          if (key === "floor") { pts = activeRoom.vertices.map((v) => [v.x, -v.y]); base = activeRoom.floor?.color || DEFAULT_FLOOR.color; }
+          else {
+            const w = wallInfo(activeRoom, Number(key.slice(1)));
+            if (!w) continue;
+            const lim = Math.max(1, Math.min(activeRoom.height, cfg.height ?? activeRoom.height));
+            pts = [[0, 0], [w.L, 0], [w.L, lim], [0, lim]]; base = activeRoom.wallColor || DEFAULT_WALL;
+          }
+          out[key] = await buildZoneTexture(cfg, byId, pts, key === "floor", base);
+        } else out[key] = await buildTileCell(tile, cfg.tile2Id ? byId[cfg.tile2Id] : null, cfg);
       }
       if (!cancelled) setTileCells(out);
     })();
     return () => { cancelled = true; };
-  }, [activeRoom?.tiling, tiles, activeRoom?.id]);
+  }, [activeRoom?.tiling, tiles, activeRoom?.id, activeRoom?.wallColor, activeRoom?.floor?.color]);
+
+  // --- carrelage : pinceau, un clic sur un carreau dans la 3D lui affecte le carreau choisi ---
+  useEffect(() => {
+    const t = three.current;
+    if (!t || mode !== "carrelage" || !brush.on || !brush.tileId || !activeRoom) return;
+    const el = t.renderer.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+    let down = null;
+    const onDown = (e) => { down = { x: e.clientX, y: e.clientY }; };
+    const onUp = (e) => {
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) { down = null; return; }
+      down = null;
+      const r = el.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, t.camera);
+      const hit = ray.intersectObjects([...t.roomGroup.children, ...t.wallGroup.children], false).find((h) => h.object.userData.zone && h.uv);
+      if (!hit) return;
+      const key = hit.object.userData.zone, cfg = zoneCfgOf(activeRoom, key), tile = cfg && tileById[cfg.tileId];
+      if (!tile) { setImportError(""); return; }
+      const f = zoneFrame(cfg, key === "floor"), [c, rw] = patternSlot(cfg, tile, toPattern(f, hit.uv.x * 100, hit.uv.y * 100)), k = c + "," + rw;
+      const ov = { ...(cfg.overrides || {}) };
+      if (brush.tileId === "base" || brush.tileId === cfg.tileId) delete ov[k]; else ov[k] = brush.tileId;
+      setTileZone(key); writeZone(key, { ...cfg, overrides: ov });
+    };
+    el.addEventListener("pointerdown", onDown); el.addEventListener("pointerup", onUp);
+    return () => { el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointerup", onUp); };
+  });
 
   // --- direction de la lumière (orientation + hauteur) ---
   useEffect(() => {
@@ -2882,6 +2976,21 @@ export default function KitchenDesigner() {
                           </div>
                         </div>
                         <label className="check"><input type="checkbox" checked={!!zoneCfg.rand90} onChange={(e) => patchZone(tileZone, { rand90: e.target.checked })} /> Orientation à 90° aléatoire (carreaux carrés, ex. ciment)</label>
+                        <div className="field-row" style={{ display: "block" }}>
+                          <div className="section-label" style={{ padding: "6px 0 2px" }}>Carreau par carreau</div>
+                          <label className="check"><input type="checkbox" checked={brush.on} onChange={(e) => { setBrush((b) => ({ ...b, on: e.target.checked, tileId: b.tileId || tiles[0]?.id || "" })); if (e.target.checked && tileZone === "floor") viewTop(); }} /> Pinceau : cliquer un carreau dans la vue 3D pour le remplacer</label>
+                          {brush.on && (
+                            <>
+                              <select className="select" value={brush.tileId} onChange={(e) => setBrush((b) => ({ ...b, tileId: e.target.value }))}>
+                                {tiles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                                <option value="none">Aucun carreau (laisser vide)</option>
+                                <option value="base">Gomme : revenir au carreau de base</option>
+                              </select>
+                              <div className="menu-note">Le carreau cliqué prend la taille de l'emplacement. {Object.keys(zoneCfg.overrides || {}).length} exception(s) sur cette surface. Si tu changes le carreau de base, la rotation ou le point de départ, les exceptions restent à leur numéro de case.</div>
+                              {Object.keys(zoneCfg.overrides || {}).length > 0 && <button className="btn" onClick={() => patchZone(tileZone, { overrides: {} })}>Effacer les exceptions</button>}
+                            </>
+                          )}
+                        </div>
                         <div className="row-actions">
                           {tileZone === "floor" ? <button className="btn" onClick={viewTop}>Vue de dessus</button> : <button className="btn" onClick={() => viewWall(Number(tileZone.slice(1)))}>Voir ce mur</button>}
                           {tileZone !== "floor" && <button className="btn" onClick={applyToAllWalls}>Appliquer à tous les murs</button>}
