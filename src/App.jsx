@@ -1308,6 +1308,7 @@ async function buildTileCell(tile, tile2, cfg) {
 // --- Carreau par carreau : textures non périodiques (exceptions) et repérage d'un carreau cliqué ---
 function hash2(a, b, sd) { let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(sd | 0, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 const tileRotOf = (cfg, c, r, canRot) => (((canRot ? Math.floor(hash2(c, r, 2) * 4) : 0) + ((cfg.rots && cfg.rots[c + "," + r]) || 0)) % 4 + 4) % 4;
+const sameTileDims = (t, base, k) => Math.abs((k % 2 ? t.h : t.w) - base.w) < 0.01 && Math.abs((k % 2 ? t.w : t.h) - base.h) < 0.01 && Math.abs(t.joint - base.joint) < 0.01;
 const hasExceptions = (cfg) => !!cfg && ((cfg.overrides && Object.keys(cfg.overrides).length > 0) || (cfg.rots && Object.keys(cfg.rots).length > 0));
 function zoneFrame(cfg, isFloor) { const th = ((cfg.rotation || 0) * Math.PI) / 180; return { c: Math.cos(th), s: Math.sin(th), ox: cfg.offX || 0, oy: (isFloor ? -1 : 1) * (cfg.offY || 0) }; }
 const toPattern = (f, u, v) => { const dx = u - f.ox, dy = v - f.oy; return [f.c * dx + f.s * dy, -f.s * dx + f.c * dy]; };
@@ -1344,14 +1345,33 @@ async function buildZoneTexture(cfg, byId, pts, isFloor, baseColor) {
       const t = none ? null : byId[o] || (tile2 && (((c + r) % 2) + 2) % 2 === 1 ? tile2 : tile);
       if (none) { ctx.fillStyle = baseColor; ctx.fillRect((c * tw + shift - qx0) * sx, (qy1 - (r * th + th)) * sx, tw * sx, th * sx); continue; }
       const x = (c * tw + shift + j / 2 - qx0) * sx, y = (qy1 - (r * th + j / 2 + tile.h)) * sx, w = tile.w * sx, h = tile.h * sx, im = imgs[t.id];
-      bctx.fillStyle = "#fff"; bctx.fillRect(x, y, w, h);
-      rctx.fillStyle = t.finish === "brillant" ? "#3a3a3a" : "#bfbfbf"; rctx.fillRect(x, y, w, h);
-      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-      if (im) { const kr = tileRotOf(cfg, c, r, canRot); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(kr * Math.PI / 2); if (kr % 2) ctx.drawImage(im, -h / 2, -w / 2, h, w); else ctx.drawImage(im, -w / 2, -h / 2, w, h); }
-      else { ctx.fillStyle = t.color; ctx.fillRect(x, y, w, h); }
-      const v = (hash2(c, r, 1) - 0.5) * 2 * variation;
-      if (v !== 0) { ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; ctx.fillRect(x, y, w, h); }
-      ctx.restore();
+      const kr = tileRotOf(cfg, c, r, canRot), sw_ = kr % 2 ? t.h : t.w, sh_ = kr % 2 ? t.w : t.h, rough = t.finish === "brillant" ? "#3a3a3a" : "#bfbfbf";
+      if (sameTileDims(t, tile, kr)) {
+        bctx.fillStyle = "#fff"; bctx.fillRect(x, y, w, h);
+        rctx.fillStyle = rough; rctx.fillRect(x, y, w, h);
+        ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+        if (im) { ctx.translate(x + w / 2, y + h / 2); ctx.rotate(kr * Math.PI / 2); if (kr % 2) ctx.drawImage(im, -h / 2, -w / 2, h, w); else ctx.drawImage(im, -w / 2, -h / 2, w, h); }
+        else { ctx.fillStyle = t.color; ctx.fillRect(x, y, w, h); }
+        const v = (hash2(c, r, 1) - 0.5) * 2 * variation;
+        if (v !== 0) { ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; ctx.fillRect(x, y, w, h); }
+        ctx.restore();
+      } else { // carreau d'une autre taille : la case est remplie de ses carreaux à leur vraie taille, coupés au bord
+        const jt = t.joint / 10, ptw = sw_ + jt, pth = sh_ + jt;
+        [ctx, bctx, rctx].forEach((g) => { g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); });
+        ctx.fillStyle = cfg.jointColor || "#b9b6b0"; ctx.fillRect(x, y, w, h);
+        bctx.fillStyle = "#000"; bctx.fillRect(x, y, w, h);
+        rctx.fillStyle = "#f2f2f2"; rctx.fillRect(x, y, w, h);
+        for (let jj = 0; jj * pth < tile.h; jj++) for (let ii = 0; ii * ptw < tile.w; ii++) {
+          const px = x + (ii * ptw + jt / 2) * sx, py = y + (jj * pth + jt / 2) * sx, pw = sw_ * sx, ph = sh_ * sx;
+          bctx.fillStyle = "#fff"; bctx.fillRect(px, py, pw, ph);
+          rctx.fillStyle = rough; rctx.fillRect(px, py, pw, ph);
+          if (im) { ctx.save(); ctx.translate(px + pw / 2, py + ph / 2); ctx.rotate(kr * Math.PI / 2); if (kr % 2) ctx.drawImage(im, -ph / 2, -pw / 2, ph, pw); else ctx.drawImage(im, -pw / 2, -ph / 2, pw, ph); ctx.restore(); }
+          else { ctx.fillStyle = t.color; ctx.fillRect(px, py, pw, ph); }
+          const v = (hash2(c * 64 + ii, r * 64 + jj, 1) - 0.5) * 2 * variation;
+          if (v !== 0) { ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; ctx.fillRect(px, py, pw, ph); }
+        }
+        [ctx, bctx, rctx].forEach((g) => g.restore());
+      }
     }
   }
   const mkTex = (cv, srgb) => { const tx = new THREE.CanvasTexture(cv); tx.anisotropy = 8; if (srgb) tx.colorSpace = THREE.SRGBColorSpace; return tx; };
@@ -1360,8 +1380,24 @@ async function buildZoneTexture(cfg, byId, pts, isFloor, baseColor) {
   if (tileCellCache.size > 40) { const kk = tileCellCache.keys().next().value; const o = tileCellCache.get(kk); [o.map, o.bump, o.rough].forEach((x) => x.dispose()); tileCellCache.delete(kk); }
   return cell;
 }
+function TileSubgrid({ q, tile, jointColor, sw }) {
+  const t = q.t, sw_ = q.k % 2 ? t.h : t.w, sh_ = q.k % 2 ? t.w : t.h, jt = t.joint / 10, ptw = sw_ + jt, pth = sh_ + jt, subs = [];
+  for (let jj = 0; jj * pth < tile.h; jj++) for (let ii = 0; ii * ptw < tile.w; ii++) subs.push([ii, jj]);
+  if (subs.length > 800) return <rect data-c={q.c} data-r={q.r} x={q.x} y={q.Y} width={tile.w} height={tile.h} fill={t.color} />;
+  return (
+    <>
+      <svg x={q.x} y={q.Y} width={tile.w} height={tile.h} viewBox={`0 0 ${tile.w} ${tile.h}`} overflow="hidden">
+        <rect data-c={q.c} data-r={q.r} x="0" y="0" width={tile.w} height={tile.h} fill={jointColor} />
+        {subs.map(([ii, jj]) => <rect key={ii + "_" + jj} data-c={q.c} data-r={q.r} x={ii * ptw + jt / 2} y={jj * pth + jt / 2} width={sw_} height={sh_} fill={t.image ? `url(#tp-${t.id}-${q.k})` : t.color} />)}
+      </svg>
+      <rect x={q.x} y={q.Y} width={tile.w} height={tile.h} fill="none" stroke="#e2711d" strokeWidth={sw / 2} pointerEvents="none" />
+    </>
+  );
+}
 // Plan de pose 2D d'une surface (sol vu de dessus, mur vu de face) : un clic sur un carreau applique le pinceau.
-function TilePlan({ room, zoneKey, cfg, byId, openings, onPick, zoom }) {
+function TilePlan({ room, zoneKey, cfg, byId, openings, onPick, zoom, lotMode, lot, onLot, selectAll }) {
+  const [marquee, setMarquee] = useState(null), svgRef = useRef(null), allRef = useRef([]), dragRef = useRef(null);
+  useEffect(() => { if (selectAll > 0) onLot(allRef.current, false); }, [selectAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const tile = byId[cfg.tileId], isFloor = zoneKey === "floor", w = isFloor ? null : wallInfo(room, Number(zoneKey.slice(1)));
   if (!tile || (!isFloor && !w)) return null;
   const lim = isFloor ? 0 : Math.max(1, Math.min(room.height, cfg.height ?? room.height));
@@ -1385,16 +1421,29 @@ function TilePlan({ room, zoneKey, cfg, byId, openings, onPick, zoom }) {
       const cs = [proj(x, Y), proj(x + tile.w, Y), proj(x, Y + tile.h), proj(x + tile.w, Y + tile.h)];
       if (Math.max(...cs.map((q) => q[0])) < bx0 || Math.min(...cs.map((q) => q[0])) > bx1 || Math.max(...cs.map((q) => q[1])) < by0 || Math.min(...cs.map((q) => q[1])) > by1) continue;
       const o = ov[c + "," + r], none = o === "none", t = none ? null : byId[o] || (tile2 && (((c + r) % 2) + 2) % 2 === 1 ? tile2 : tile);
-      rects.push({ c, r, x, Y, t, none, k: none ? 0 : tileRotOf(cfg, c, r, canRot), exc: o !== undefined || !!(cfg.rots && cfg.rots[c + "," + r]) });
+      const k = none ? 0 : tileRotOf(cfg, c, r, canRot);
+      rects.push({ c, r, x, Y, t, none, k, cen: proj(x + tile.w / 2, Y + tile.h / 2), same: none || sameTileDims(t, tile, k), exc: o !== undefined || !!(cfg.rots && cfg.rots[c + "," + r]) });
     }
   }
+  allRef.current = rects.filter((q) => q.cen[0] >= bx0 && q.cen[0] <= bx1 && q.cen[1] >= by0 && q.cen[1] <= by1).map((q) => q.c + "," + q.r);
+  const lotSet = new Set(lot || []);
+  const svgPt = (e) => { const sv = svgRef.current, pt = sv.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const m = sv.getScreenCTM(); return m ? pt.matrixTransform(m.inverse()) : pt; };
   const clip = isFloor
     ? <polygon points={disp.map((q) => q.join(",")).join(" ")} />
     : wallRects(room, openings, w).filter((q) => q.z0 < lim).map((q, i) => <rect key={i} x={q.x0} y={lim - Math.min(q.z1, lim)} width={q.x1 - q.x0} height={Math.min(q.z1, lim) - q.z0} />);
   const pad = 15, sw = Math.max(tile.w, tile.h) / 40;
   return (
-    <svg className="tile-plan-svg" viewBox={`${bx0 - pad} ${by0 - pad} ${bx1 - bx0 + 2 * pad} ${by1 - by0 + 2 * pad}`} style={{ width: `${zoom * 100}%` }}
-      onClick={(e) => { const d = e.target.dataset; if (d && d.c !== undefined) onPick(zoneKey, Number(d.c), Number(d.r)); }}>
+    <svg ref={svgRef} className="tile-plan-svg" viewBox={`${bx0 - pad} ${by0 - pad} ${bx1 - bx0 + 2 * pad} ${by1 - by0 + 2 * pad}`} style={{ width: `${zoom * 100}%`, touchAction: lotMode ? "none" : "auto" }}
+      onClick={(e) => { if (lotMode) return; const d = e.target.dataset; if (d && d.c !== undefined) onPick(zoneKey, Number(d.c), Number(d.r)); }}
+      onPointerDown={(e) => { if (!lotMode) return; const pt = svgPt(e); dragRef.current = { x: pt.x, y: pt.y, d: e.target.dataset, add: e.shiftKey || e.ctrlKey || e.metaKey, moved: false }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+      onPointerMove={(e) => { const d = dragRef.current; if (!d) return; const pt = svgPt(e); if (Math.hypot(pt.x - d.x, pt.y - d.y) > 2) d.moved = true; if (d.moved) setMarquee({ x0: Math.min(d.x, pt.x), y0: Math.min(d.y, pt.y), x1: Math.max(d.x, pt.x), y1: Math.max(d.y, pt.y) }); }}
+      onPointerUp={(e) => {
+        const d = dragRef.current; dragRef.current = null; setMarquee(null);
+        if (!d) return;
+        if (!d.moved) { if (d.d && d.d.c !== undefined) onLot([d.d.c + "," + d.d.r], "toggle"); return; }
+        const pt = svgPt(e), x0 = Math.min(d.x, pt.x), x1 = Math.max(d.x, pt.x), y0 = Math.min(d.y, pt.y), y1 = Math.max(d.y, pt.y);
+        onLot(rects.filter((q) => q.cen[0] >= x0 && q.cen[0] <= x1 && q.cen[1] >= y0 && q.cen[1] <= y1).map((q) => q.c + "," + q.r), d.add);
+      }}>
       <defs>
         <clipPath id="tp-clip">{clip}</clipPath>
         {Object.values(used).filter((t) => t.image).flatMap((t) => [0, 1, 2, 3].map((k) => (
@@ -1412,13 +1461,17 @@ function TilePlan({ room, zoneKey, cfg, byId, openings, onPick, zoom }) {
               <g key={q.c + "," + q.r}>
                 {q.none
                   ? <rect data-c={q.c} data-r={q.r} x={q.c * tw + (n > 1 ? ((((q.r % n) + n) % n) / n) * tw : 0)} y={-(q.r * th + th)} width={tw} height={th} fill={baseColor} stroke="#9aa5b1" strokeWidth={sw / 3} strokeDasharray={`${sw} ${sw}`} />
-                  : <rect data-c={q.c} data-r={q.r} x={q.x} y={q.Y} width={tile.w} height={tile.h} fill={q.t.image ? `url(#tp-${q.t.id}-${q.k})` : q.t.color} stroke={q.exc ? "#e2711d" : "none"} strokeWidth={sw / 2} />}
+                  : q.same
+                    ? <rect data-c={q.c} data-r={q.r} x={q.x} y={q.Y} width={tile.w} height={tile.h} fill={q.t.image ? `url(#tp-${q.t.id}-${q.k})` : q.t.color} stroke={q.exc ? "#e2711d" : "none"} strokeWidth={sw / 2} />
+                    : <TileSubgrid q={q} tile={tile} jointColor={cfg.jointColor || "#b9b6b0"} sw={sw} />}
+                {lotSet.has(q.c + "," + q.r) && <rect x={q.x} y={q.Y} width={tile.w} height={tile.h} fill="rgba(31,111,147,0.35)" stroke="#1f6f93" strokeWidth={sw / 1.5} pointerEvents="none" />}
                 {!q.none && <path d={`M${cx} ${cy - m} L${cx + m * 0.8} ${cy + m * 0.7} L${cx - m * 0.8} ${cy + m * 0.7} Z`} transform={`rotate(${q.k * 90} ${cx} ${cy})`} fill="#1d2733" opacity="0.4" pointerEvents="none" />}
               </g>
             );
           })}
         </g>
       </g>
+      {marquee && <rect x={marquee.x0} y={marquee.y0} width={marquee.x1 - marquee.x0} height={marquee.y1 - marquee.y0} fill="rgba(31,111,147,0.12)" stroke="#1f6f93" strokeDasharray={`${sw} ${sw}`} strokeWidth={sw / 3} pointerEvents="none" />}
       <g fill="none" stroke="#1d2733" strokeWidth={sw / 2} pointerEvents="none">{isFloor ? <polygon points={disp.map((q) => q.join(",")).join(" ")} /> : <rect x={0} y={0} width={w.L} height={lim} />}</g>
     </svg>
   );
@@ -1447,7 +1500,7 @@ function tilingSummary(rooms, items, tiles) {
       const put = (lbl, t, a, cnt) => { zones.push({ room: room.name, label: lbl, tile: t, m2: a / 10000, count: cnt }); totals[t.id] = totals[t.id] || { tile: t, m2: 0, count: 0 }; totals[t.id].m2 += a / 10000; totals[t.id].count += cnt; };
       put(label, tile, area, Math.ceil((area / pitch) * waste));
       const per = {}; ovs.forEach((v) => { if (byId[v] && v !== tile.id) per[v] = (per[v] || 0) + 1; });
-      Object.entries(per).forEach(([id, nn]) => put(label + " (exceptions)", byId[id], nn * pitch, Math.ceil(nn * waste)));
+      Object.entries(per).forEach(([id, nn]) => { const t = byId[id], pt = (t.w + t.joint / 10) * (t.h + t.joint / 10); put(label + " (exceptions)", t, nn * pitch, Math.ceil(((nn * pitch) / pt) * waste)); });
     };
     const fl = room.tiling?.floor;
     if (fl) add("Sol", "floor", fl, polyAreaCm2(room.vertices));
@@ -1924,6 +1977,9 @@ export default function KitchenDesigner() {
   const [brush, setBrush] = useState({ on: false, tileId: "" });
   const [tileView, setTileView] = useState("3d"); // "3d" | "plan"
   const [planZoom, setPlanZoom] = useState(1);
+  const [lotMode, setLotMode] = useState(false); // plan 2D : sélection d'un lot de carreaux
+  const [lot, setLot] = useState([]);
+  const [selectAll, setSelectAll] = useState(0);
   const [tileCells, setTileCells] = useState({});
   const [showFurniture, setShowFurniture] = useState(false);
   const tileFileRef = useRef(null);
@@ -2157,6 +2213,33 @@ export default function KitchenDesigner() {
     return () => { cancelled = true; };
   }, [activeRoom?.tiling, tiles, activeRoom?.id, activeRoom?.wallColor, activeRoom?.floor?.color]);
 
+  useEffect(() => { setLot([]); }, [tileZone, activeRoomId]);
+  // --- carrelage : actions sur un lot de carreaux sélectionné dans le plan 2D ---
+  function onLot(keys, how) {
+    setLot((cur) => (how === "toggle" ? (cur.includes(keys[0]) ? cur.filter((k) => k !== keys[0]) : [...cur, keys[0]]) : how ? [...new Set([...cur, ...keys])] : keys));
+  }
+  function lotRotate(mode, v) { // mode "abs" : orientation finale précise (0-3 quarts de tour) ; "rel" : ajoute v quarts de tour
+    const cfg = activeRoom && zoneCfgOf(activeRoom, tileZone), tile = cfg && tileById[cfg.tileId];
+    if (!tile || !lot.length) return;
+    const canRot = !!cfg.rand90 && Math.abs(tile.w - tile.h) < 0.01, rots = { ...(cfg.rots || {}) };
+    lot.forEach((k) => {
+      const [c, r] = k.split(",").map(Number), rnd = canRot ? Math.floor(hash2(c, r, 2) * 4) : 0, cur = rots[k] || 0;
+      const nv = (((mode === "abs" ? v - rnd : cur + v) % 4) + 4) % 4;
+      if (nv) rots[k] = nv; else delete rots[k];
+    });
+    writeZone(tileZone, { ...cfg, rots });
+  }
+  function lotApplyTile() {
+    const cfg = activeRoom && zoneCfgOf(activeRoom, tileZone);
+    if (!cfg || !lot.length || !brush.tileId || brush.tileId === "rot") return;
+    const ov = { ...(cfg.overrides || {}) }, rots = { ...(cfg.rots || {}) };
+    lot.forEach((k) => {
+      if (brush.tileId === "base") { delete ov[k]; delete rots[k]; }
+      else if (brush.tileId === cfg.tileId) delete ov[k];
+      else ov[k] = brush.tileId;
+    });
+    writeZone(tileZone, { ...cfg, overrides: ov, rots });
+  }
   // --- carrelage : applique le pinceau (carreau, vide, gomme ou rotation 90°) à la case (c, r) d'une surface ---
   function applyBrush(key, c, r) {
     const cfg = activeRoom && zoneCfgOf(activeRoom, key);
@@ -2754,8 +2837,11 @@ export default function KitchenDesigner() {
         .body.istile .main { min-height:0; }
         .body.istile .viewer3d-wrap { position:relative; flex:1; height:calc(100vh - 130px); min-height:50vh; }
         @media (max-width: 860px) { .body.istile .viewer3d-wrap { height:50vh; flex:none; } }
-        .tile-plan { position:absolute; inset:0; z-index:3; background:#fff; overflow:auto; }
+        .tile-plan { user-select:none; -webkit-user-select:none; position:absolute; inset:0; z-index:3; background:#fff; overflow:auto; }
         .tile-plan-bar { position:sticky; top:0; left:0; z-index:2; display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:6px 10px; background:#f4f7f9; border-bottom:1px solid #d7dde3; font-size:12px; font-family:'IBM Plex Mono',monospace; color:#1f6f93; }
+        .lot-bar { flex-basis:100%; display:flex; flex-wrap:wrap; align-items:center; gap:6px; color:#1d2733; }
+        .lot-sep { color:#6b7789; margin-left:6px; }
+        .tile-plan-bar .seg { display:flex; gap:2px; }
         .tile-plan-svg { display:block; cursor:crosshair; }
         .zone-list { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px; }
         .zone-btn { display:flex; flex-direction:column; align-items:flex-start; gap:1px; padding:6px 8px; border:1px solid #c7d0d9; border-radius:3px; background:#fff; cursor:pointer; font-size:12px; text-align:left; color:#1d2733; }
@@ -3066,7 +3152,7 @@ export default function KitchenDesigner() {
                                 <option value="none">Aucun carreau (laisser vide)</option>
                                 <option value="base">Gomme : revenir au carreau de base</option>
                               </select>
-                              <div className="menu-note">Le carreau cliqué prend la taille de l'emplacement ; le triangle du plan 2D indique son orientation. {Object.keys(zoneCfg.overrides || {}).length} exception(s) et {Object.keys(zoneCfg.rots || {}).length} rotation(s) sur cette surface. Si tu changes le carreau de base, la rotation ou le point de départ, les exceptions restent à leur numéro de case.</div>
+                              <div className="menu-note">Le carreau posé garde sa vraie taille : la case est remplie de ces carreaux, coupés au bord ; le triangle du plan 2D indique l'orientation. {Object.keys(zoneCfg.overrides || {}).length} exception(s) et {Object.keys(zoneCfg.rots || {}).length} rotation(s) sur cette surface. Si tu changes le carreau de base, la rotation ou le point de départ, les exceptions restent à leur numéro de case.</div>
                               {hasExceptions(zoneCfg) && <button className="btn" onClick={() => patchZone(tileZone, { overrides: {}, rots: {} })}>Effacer les exceptions et rotations</button>}
                             </>
                           )}
@@ -3258,9 +3344,32 @@ export default function KitchenDesigner() {
                     <b>{zoneKeys.find((z) => z.key === tileZone)?.label}</b>
                     <span>{brush.on ? "Clique un carreau pour appliquer le pinceau" : "Active le pinceau (panneau de gauche)"}</span>
                     <label>Zoom <input type="range" min="1" max="5" step="0.25" value={planZoom} onChange={(e) => setPlanZoom(Number(e.target.value))} /></label>
+                    <span className="seg">
+                      <button className={`btn ${!lotMode ? "primary" : ""}`} onClick={() => setLotMode(false)}>Pinceau</button>
+                      <button className={`btn ${lotMode ? "primary" : ""}`} onClick={() => setLotMode(true)}>Lot</button>
+                    </span>
+                    {lotMode && (
+                      <div className="lot-bar">
+                        <span>{lot.length} carreau(x) — clic, ou glisser un cadre (Maj = ajouter)</span>
+                        <button className="btn" onClick={() => setSelectAll((n) => n + 1)}>Tout</button>
+                        <button className="btn" onClick={() => setLot([])}>Aucun</button>
+                        <span className="lot-sep">Orientation :</span>
+                        {[0, 1, 2, 3].map((q) => <button key={q} className="btn" disabled={!lot.length} onClick={() => lotRotate("abs", q)}>{q * 90}°</button>)}
+                        <button className="btn" disabled={!lot.length} onClick={() => lotRotate("rel", 3)}>↺ −90°</button>
+                        <button className="btn" disabled={!lot.length} onClick={() => lotRotate("rel", 1)}>↻ +90°</button>
+                        <span className="lot-sep">Carreau :</span>
+                        <select className="select" value={brush.tileId === "rot" ? "" : brush.tileId} onChange={(e) => setBrush((b) => ({ ...b, on: true, tileId: e.target.value }))}>
+                          <option value="">—</option>
+                          {tiles.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                          <option value="none">Aucun carreau (vide)</option>
+                          <option value="base">Gomme (carreau de base)</option>
+                        </select>
+                        <button className="btn" disabled={!lot.length || !brush.tileId || brush.tileId === "rot"} onClick={lotApplyTile}>Appliquer au lot</button>
+                      </div>
+                    )}
                   </div>
                   {zoneCfg && activeRoom
-                    ? <TilePlan room={activeRoom} zoneKey={tileZone} cfg={zoneCfg} byId={tileById} openings={roomItemsComputed.filter((it) => isWallOpening(it.catalogEntry))} onPick={applyBrush} zoom={planZoom} />
+                    ? <TilePlan room={activeRoom} zoneKey={tileZone} cfg={zoneCfg} byId={tileById} openings={roomItemsComputed.filter((it) => isWallOpening(it.catalogEntry))} onPick={applyBrush} zoom={planZoom} lotMode={lotMode} lot={lot} onLot={onLot} selectAll={selectAll} />
                     : <div className="empty">Choisis un carreau pour cette surface (panneau de gauche).</div>}
                 </div>
               )}
